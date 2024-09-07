@@ -1,13 +1,18 @@
 cmake_minimum_required(VERSION 3.14)
 project(gemm_naive)
 
-set(CMAKE_CUDA_COMPILER  /usr/local/cuda/bin/nvcc)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
 
+set(CMAKE_CUDA_COMPILER  /usr/local/cuda/bin/nvcc)
 set(CUDA_ARCHITECTURES 86)
 # Check for CUDA
 # find_package(CUDAToolkit REQUIRED)
 # include_directories(${CUDAToolkit_INCLUDE_DIRS})
 # set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS};--expt-extended-lambda;-G)
+
+#include
+include_directories(${CMAKE_SOURCE_DIR}/include)
+include_directories(/usr/local/cuda/include)
 
 # Enable CUDA for the project
 enable_language(CUDA)
@@ -17,6 +22,8 @@ set(SOURCE_FILES
   src/gemm_test.cpp 
   src/cuda/gemm_naive.cu
   # Add other .cpp and .cu files here
+
+  src/cpu/cpu_naive.cpp
 )
 
 # Add the executable
