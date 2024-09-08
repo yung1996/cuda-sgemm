@@ -20,7 +20,7 @@ enable_language(CUDA)
 # Set source files
 set(SOURCE_FILES
   src/gemm_test.cpp 
-  src/cuda/gemm_naive.cu
+  src/cuda/cuda_gemm.cu
   # Add other .cpp and .cu files here
 
   src/cpu/cpu_naive.cpp
@@ -28,6 +28,7 @@ set(SOURCE_FILES
 
 # Add the executable
 add_executable(${PROJECT_NAME} ${SOURCE_FILES})
+target_link_libraries(${PROJECT_NAME} cublas)
 
 # #假设你想为CUDA目标添加编译选项
 # set_target_properties(${PROJECT_NAME} PROPERTIES
