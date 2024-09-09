@@ -114,7 +114,7 @@ int main(int argc, char* argv[]) {
     
     case 2:
       // Perform matrix multiplication: C = alpha * A * B + beta * C
-      CUBLAS_CHECK(cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, M, K, &alpha, d_B, N, d_A, K, &beta, d_C, N));
+      CUBLAS_CHECK(cublasSgemm_v2(handle, CUBLAS_OP_T, CUBLAS_OP_T, M, N, K, &alpha, d_A, K, d_B, N, &beta, d_C, M));
       func_name = "cuda_gemm_cublas";
       break;
     
@@ -130,6 +130,20 @@ int main(int argc, char* argv[]) {
       CUDA_CHECK(cudaMemcpy(h_C.data(), d_C, sizeC, cudaMemcpyDeviceToHost));
       CUDA_CHECK(cudaDeviceSynchronize());
       func_name = "cuda_gemm_8x8_float4";
+      break;
+  
+    case 5:
+      cuda_gemm_8x8_float4_2(d_A, d_B, d_C, M, N, K);
+      CUDA_CHECK(cudaMemcpy(h_C.data(), d_C, sizeC, cudaMemcpyDeviceToHost));
+      CUDA_CHECK(cudaDeviceSynchronize());
+      func_name = "cuda_gemm_8x8_float4_2";
+      break;
+
+    case 6:
+      cuda_gemm_8x8_float4_3(d_A, d_B, d_C, M, N, K);
+      CUDA_CHECK(cudaMemcpy(h_C.data(), d_C, sizeC, cudaMemcpyDeviceToHost));
+      CUDA_CHECK(cudaDeviceSynchronize());
+      func_name = "cuda_gemm_8x8_float4_3";
       break;
 
     default:

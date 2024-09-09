@@ -1,5 +1,6 @@
 #include <cuda_gemm.hpp>
 #include <stdio.h>
+#include <iostream>
 
 inline __device__ void mma4_4(const float4 fragmentA, const float4 fragmentB, float4 * tc){
   tc[0].x += fragmentA.x * fragmentB.x;
@@ -105,7 +106,7 @@ unsigned int i = (threadIdx.y + blockIdx.y * blockDim.y) * 8;
   float4 tc[4] = {tc_zero,tc_zero,tc_zero,tc_zero};
   float4 tc4x4[4][4] = {tc[4], tc[4], tc[4], tc[4]};
   float4 * f4c = reinterpret_cast<float4 *>(c);
-
+  
   #pragma unroll
   for (unsigned int ii = 0; ii < 8; ii += 4) {
     #pragma unroll
@@ -135,5 +136,130 @@ void cuda_gemm_8x8_float4(const float * a, const float * b, float *c, int M, int
 
   dim3 grid((tN  - 1) / block.x + 1, (tM - 1)/ block.y + 1);
   cuda_gemm_8x8_float4_kernel<<<grid, block>>>(a, b, c, M, N, K);
+  cudaDeviceSynchronize();
+}
+
+__global__ void cuda_gemm_8x8_float4_2_kernel(const float * a, const float * b, float *c, int M, int N, int K) {
+unsigned int i = (threadIdx.y + blockIdx.y * blockDim.y) * 8;
+  unsigned int j = (threadIdx.x + blockIdx.x * blockDim.x) * 8;
+  if (i >= M || j >= N) {
+    return;
+  }
+
+  float4 tc_zero = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+  float4 tc[4] = {tc_zero,tc_zero,tc_zero,tc_zero};
+  float4 tc4x4[4][4] = {tc[4], tc[4], tc[4], tc[4]};
+  float4 * f4c = reinterpret_cast<float4 *>(c);
+
+  float4 fragmentA[2];
+  float4 fragmentB[2];
+
+  #pragma unroll
+  for(int k = 0; k < K; k++){
+    fragmentA[0] = make_float4(*(a + i * K + k), *(a + (i + 1) * K + k),*(a + (i + 2) * K + k), *(a + (i + 3) * K + k));
+    fragmentB[0] = make_float4(*(b + k * N + j), *(b + k * N + j + 1),  *(b + k * N + j + 2),  *(b + k * N + j + 3));
+    mma4_4(fragmentA[0], fragmentB[0], tc4x4[0]);
+    fragmentA[1] = make_float4(*(a + (i + 4) * K + k), *(a + (i + 5) * K + k),*(a + (i + 6) * K + k), *(a + (i + 7) * K + k));
+    mma4_4(fragmentA[1], fragmentB[0], tc4x4[2]);
+    fragmentB[1] = make_float4(*(b + k * N + j + 4), *(b + k * N + j + 5),  *(b + k * N + j + 6),  *(b + k * N + j + 7));
+    mma4_4(fragmentA[0], fragmentB[1], tc4x4[1]);
+    mma4_4(fragmentA[1], fragmentB[1], tc4x4[3]);
+  }
+
+  #pragma unroll
+  for(int r = 0; r < 4; r++){
+    f4c[(i + 0 + r) * (N / 4) + ((j + 0) / 4)] = tc4x4[0][r];
+    f4c[(i + 0 + r) * (N / 4) + ((j + 4) / 4)] = tc4x4[1][r];
+    f4c[(i + 4 + r) * (N / 4) + ((j + 0) / 4)] = tc4x4[2][r];
+    f4c[(i + 4 + r) * (N / 4) + ((j + 4) / 4)] = tc4x4[3][r];
+  }
+
+}
+
+void cuda_gemm_8x8_float4_2(const float * a, const float * b, float *c, int M, int N, int K) {
+  cudaFuncAttributes funcAttrib;
+  cudaError_t err = cudaFuncGetAttributes(&funcAttrib, cuda_gemm_8x8_float4_2_kernel);
+  // Print the number of registers used by the kernel
+  std::cout << "Number of registers used by exampleKernel: " << funcAttrib.numRegs << std::endl;
+  dim3 block(16 , 32);
+
+  int tN = (N - 1) / 4 + 1;
+  int tM = (M - 1) / 4 + 1;
+
+  dim3 grid((tN  - 1) / block.x + 1, (tM - 1)/ block.y + 1);
+  cuda_gemm_8x8_float4_2_kernel<<<grid, block>>>(a, b, c, M, N, K);
+  cudaDeviceSynchronize();
+}
+
+__global__ void cuda_gemm_8x8_float4_3_kernel(const float * a, const float * b, float *c, int M, int N, int K) {
+unsigned int i = (threadIdx.y + blockIdx.y * blockDim.y) * 8;
+  unsigned int j = (threadIdx.x + blockIdx.x * blockDim.x) * 8;
+  if (i >= M || j >= N) {
+    return;
+  }
+
+  float4 tc_zero = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+  float4 tc[4] = {tc_zero,tc_zero,tc_zero,tc_zero};
+  float4 tc4x4[4][4] = {tc[4], tc[4], tc[4], tc[4]};
+  float4 * f4c = reinterpret_cast<float4 *>(c);
+
+  float4 fragmentA[2][2];
+  float4 fragmentB[2][2];
+
+  int REG_OFFSET = 0;
+
+  fragmentA[0][0] = make_float4(*(a + i * K), *(a + (i + 1) * K),*(a + (i + 2) * K), *(a + (i + 3) * K));
+  fragmentB[0][0] = make_float4(*(b + 0 * N + j), *(b + 0 * N + j + 1),  *(b + 0 * N + j + 2),  *(b + 0 * N + j + 3));
+  fragmentA[0][1] = make_float4(*(a + (i + 4) * K), *(a + (i + 5) * K),*(a + (i + 6) * K), *(a + (i + 7) * K));
+  fragmentB[0][1] = make_float4(*(b + 0 * N + j + 4), *(b + 0 * N + j + 5),  *(b + 0 * N + j + 6),  *(b + 0 * N + j + 7));
+
+  
+  REG_OFFSET ^= 1;
+  
+  #pragma unroll
+  for(int k = 1; k < K; k++){
+    fragmentA[REG_OFFSET][0] = make_float4(*(a + i * K + k), *(a + (i + 1) * K + k),*(a + (i + 2) * K + k), *(a + (i + 3) * K + k));
+    fragmentB[REG_OFFSET][0] = make_float4(*(b + k * N + j), *(b + k * N + j + 1),  *(b + k * N + j + 2),  *(b + k * N + j + 3));
+    fragmentA[REG_OFFSET][1] = make_float4(*(a + (i + 4) * K + k), *(a + (i + 5) * K + k),*(a + (i + 6) * K + k), *(a + (i + 7) * K + k));
+    fragmentB[REG_OFFSET][1] = make_float4(*(b + k * N + j + 4), *(b + k * N + j + 5),  *(b + k * N + j + 6),  *(b + k * N + j + 7));
+
+    REG_OFFSET ^= 1;
+
+    mma4_4(fragmentA[REG_OFFSET][0], fragmentB[REG_OFFSET][0], tc4x4[0]);
+    mma4_4(fragmentA[REG_OFFSET][0], fragmentB[REG_OFFSET][1], tc4x4[1]);
+    mma4_4(fragmentA[REG_OFFSET][1], fragmentB[REG_OFFSET][0], tc4x4[2]);
+    mma4_4(fragmentA[REG_OFFSET][1], fragmentB[REG_OFFSET][1], tc4x4[3]);
+  }
+
+  REG_OFFSET ^= 1;
+
+  mma4_4(fragmentA[REG_OFFSET][0], fragmentB[REG_OFFSET][0], tc4x4[0]);
+  mma4_4(fragmentA[REG_OFFSET][0], fragmentB[REG_OFFSET][1], tc4x4[1]);
+  mma4_4(fragmentA[REG_OFFSET][1], fragmentB[REG_OFFSET][0], tc4x4[2]);
+  mma4_4(fragmentA[REG_OFFSET][1], fragmentB[REG_OFFSET][1], tc4x4[3]);
+
+  #pragma unroll
+  for(int r = 0; r < 4; r++){
+    f4c[(i + 0 + r) * (N / 4) + ((j + 0) / 4)] = tc4x4[0][r];
+    f4c[(i + 0 + r) * (N / 4) + ((j + 4) / 4)] = tc4x4[1][r];
+    f4c[(i + 4 + r) * (N / 4) + ((j + 0) / 4)] = tc4x4[2][r];
+    f4c[(i + 4 + r) * (N / 4) + ((j + 4) / 4)] = tc4x4[3][r];
+  }
+
+}
+
+void cuda_gemm_8x8_float4_3(const float * a, const float * b, float *c, int M, int N, int K) {
+  cudaFuncAttributes funcAttrib;
+  cudaError_t err = cudaFuncGetAttributes(&funcAttrib, cuda_gemm_8x8_float4_3_kernel);
+  // Print the number of registers used by the kernel
+  std::cout << "Number of registers used by exampleKernel: " << funcAttrib.numRegs << std::endl;
+
+  dim3 block(16 , 32);
+
+  int tN = (N - 1) / 4 + 1;
+  int tM = (M - 1) / 4 + 1;
+
+  dim3 grid((tN  - 1) / block.x + 1, (tM - 1)/ block.y + 1);
+  cuda_gemm_8x8_float4_3_kernel<<<grid, block>>>(a, b, c, M, N, K);
   cudaDeviceSynchronize();
 }
