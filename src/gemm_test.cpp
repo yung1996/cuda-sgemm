@@ -46,9 +46,10 @@ int main(int argc, char* argv[]) {
 
   // Determine the GEMM implementation to use
   int implementation = std::stoi(argv[1]);
-  int M = std::stoi(argv[2]); // Matrix size M
-  int N = std::stoi(argv[3]); // Matrix size
-  int K = std::stoi(argv[4]); // Matrix size
+  // force to align by 4
+  int M = (std::stoi(argv[2]) / 4) * 4; // Matrix size M
+  int N = (std::stoi(argv[3]) / 4) * 4; // Matrix size
+  int K = (std::stoi(argv[4]) / 4) * 4; // Matrix size
 
   // Initialize matrices A, B, and C with random values
   std::vector<float> h_A(M * K);
@@ -122,6 +123,13 @@ int main(int argc, char* argv[]) {
       CUDA_CHECK(cudaMemcpy(h_C.data(), d_C, sizeC, cudaMemcpyDeviceToHost));
       CUDA_CHECK(cudaDeviceSynchronize());
       func_name = "cuda_gemm_float4";
+      break;
+
+    case 4:
+      cuda_gemm_8x8_float4(d_A, d_B, d_C, M, N, K);
+      CUDA_CHECK(cudaMemcpy(h_C.data(), d_C, sizeC, cudaMemcpyDeviceToHost));
+      CUDA_CHECK(cudaDeviceSynchronize());
+      func_name = "cuda_gemm_8x8_float4";
       break;
 
     default:

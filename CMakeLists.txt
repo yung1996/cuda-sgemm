@@ -4,7 +4,8 @@ project(gemm_naive)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
 
 set(CMAKE_CUDA_COMPILER  /usr/local/cuda/bin/nvcc)
-set(CUDA_ARCHITECTURES 86)
+set(CUDA_ARCHITECTURES 86 89)
+set(CMAKE_CUDA_ARCHITECTURES ${CUDA_ARCHITECTURES})
 # Check for CUDA
 # find_package(CUDAToolkit REQUIRED)
 # include_directories(${CUDAToolkit_INCLUDE_DIRS})

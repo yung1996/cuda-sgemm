@@ -51,7 +51,7 @@ __global__ void cuda_gemm_float4_kernel(const float * a, const float * b, float 
     return;
   }
 
-  // boundary case
+  // boundary case, assume the memory is align by four
   // if (M - i < 4 || N - j < 4) {
   //   for (int ii = i; ii < M; ++ii) {
   //     for (int jj = j; jj < N; ++jj) {
@@ -65,7 +65,6 @@ __global__ void cuda_gemm_float4_kernel(const float * a, const float * b, float 
   //   return;
   // }
 
-
   float4 tc_zero = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
   float4 tc[4] = {tc_zero,tc_zero,tc_zero,tc_zero};
 
@@ -76,24 +75,11 @@ __global__ void cuda_gemm_float4_kernel(const float * a, const float * b, float 
     float4 fragmentB = make_float4(*(b + k * N + j), *(b + k * N + j + 1),  *(b + k * N + j + 2),  *(b + k * N + j + 3));
     mma4_4(fragmentA, fragmentB, tc);
   }
-
   
-  
-  // #pragma unroll
-  // printf("Thread id: (%d, %d); N: %d; Result: %d\n", i, j, N, (i + 0) * N + j + 1);
-  
+  #pragma unroll
   for(int ii = 0; ii < 4; ii++){
-    // printf("Thread id: (%d, %d); N: %d; Result: %d\n", i, j, N, (i + ii) * N);
-    float x = tc[ii].x;
-    float y = tc[ii].y;
-    float z = tc[ii].z;
-    float w = tc[ii].w;
-    c[(i + ii) * N + j] = x;
-    c[(i + ii) * N + j + 1] = y;
-    c[(i + ii) * N + j + 2] = z;
-    c[(i + ii) * N + j + 3] = w;
-    // float4 * f4c_row = reinterpret_cast<float4 *>(c + (i + ii) * N);
-    // f4c_row[j / 4] = tc[ii];
+    float4 * f4c_row = reinterpret_cast<float4 *>(c + (i + ii) * N);
+    f4c_row[j / 4] = tc[ii];
   }
 }
 
@@ -105,5 +91,49 @@ void cuda_gemm_float4(const float * a, const float * b, float *c, int M, int N, 
 
   dim3 grid((tN  - 1) / block.x + 1, (tM - 1)/ block.y + 1);
   cuda_gemm_float4_kernel<<< grid, block>>>(a, b, c, M, N, K);
+  cudaDeviceSynchronize();
+}
+
+__global__ void cuda_gemm_8x8_float4_kernel(const float * a, const float * b, float *c, int M, int N, int K) {
+unsigned int i = (threadIdx.y + blockIdx.y * blockDim.y) * 8;
+  unsigned int j = (threadIdx.x + blockIdx.x * blockDim.x) * 8;
+  if (i >= M || j >= N) {
+    return;
+  }
+
+  float4 tc_zero = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+  float4 tc[4] = {tc_zero,tc_zero,tc_zero,tc_zero};
+  float4 tc4x4[4][4] = {tc[4], tc[4], tc[4], tc[4]};
+  float4 * f4c = reinterpret_cast<float4 *>(c);
+
+  #pragma unroll
+  for (unsigned int ii = 0; ii < 8; ii += 4) {
+    #pragma unroll
+    for (unsigned int jj = 0; jj < 8; jj += 4) {
+      unsigned int index = ((ii / 4 )* 2 + jj / 4);
+      #pragma unroll
+      for(int k = 0; k < K; k++){
+        float4 fragmentA = make_float4(*(a + (i + ii) * K + k), *(a + (i + ii + 1) * K + k),*(a + (i + ii + 2) * K + k), *(a + (i + ii + 3) * K + k));
+        float4 fragmentB = make_float4(*(b + k * N + j + jj), *(b + k * N + j + jj + 1),  *(b + k * N + j + jj + 2),  *(b + k * N + j + jj + 3));
+        mma4_4(fragmentA, fragmentB, tc4x4[index]);
+      }
+
+      #pragma unroll
+      for(int r = 0; r < 4; r++){
+        f4c[(i + ii + r) * (N / 4) + ((j + jj) / 4)] = tc4x4[index][r];
+      }
+    }
+  }
+
+}
+
+void cuda_gemm_8x8_float4(const float * a, const float * b, float *c, int M, int N, int K) {
+  dim3 block(32 , 32);
+
+  int tN = (N - 1) / 4 + 1;
+  int tM = (M - 1) / 4 + 1;
+
+  dim3 grid((tN  - 1) / block.x + 1, (tM - 1)/ block.y + 1);
+  cuda_gemm_8x8_float4_kernel<<<grid, block>>>(a, b, c, M, N, K);
   cudaDeviceSynchronize();
 }
