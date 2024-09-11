@@ -146,6 +146,14 @@ int main(int argc, char* argv[]) {
       func_name = "cuda_gemm_8x8_float4_3";
       break;
 
+    case 7:
+      cuda_gemm_smem_float4(d_A, d_B, d_C, M, N, K);
+      CUDA_CHECK(cudaMemcpy(h_C.data(), d_C, sizeC, cudaMemcpyDeviceToHost));
+      CUDA_CHECK(cudaDeviceSynchronize());
+      func_name = "cuda_gemm_smem_float4";
+      break;
+
+
     default:
       break;
   }
@@ -176,8 +184,9 @@ int main(int argc, char* argv[]) {
   // print_matrix(h_B, K, N);
   // std::cout << "***********" << " Matrix C " << "***********" << std::endl;
   // print_matrix(h_C, M, N);
-
+  // std::cout << h_C[0] << ", " <<  h_C[100] << std::endl;
   // cpu_gemm_naive(h_A.data(), h_B.data(), h_C.data(), M, N, K);
+  // std::cout << h_C[0] << ", " <<  h_C[100] << std::endl;
   // std::cout << "***********" << " Matrix A " << "***********" << std::endl;
   // print_matrix(h_A, M, K);
   // std::cout << "***********" << " Matrix B " << "***********" << std::endl;

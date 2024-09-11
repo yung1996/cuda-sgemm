@@ -263,3 +263,59 @@ void cuda_gemm_8x8_float4_3(const float * a, const float * b, float *c, int M, i
   cuda_gemm_8x8_float4_3_kernel<<<grid, block>>>(a, b, c, M, N, K);
   cudaDeviceSynchronize();
 }
+
+__global__ void cuda_gemm_smem_float4_kernel(const float * a, const float * b, float *c, int M, int N, int K) {
+  unsigned int i = (threadIdx.y + blockIdx.y * blockDim.y) * 4;
+  unsigned int j = (threadIdx.x + blockIdx.x * blockDim.x) * 4;
+
+  __shared__ float4 smemA[32][32];
+  __shared__ float4 smemB[32][32];
+
+  float4 fragA;
+  float4 fragB;
+  float4 tc_zero = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
+  float4 tc[4] = {tc_zero, tc_zero, tc_zero, tc_zero};
+
+  for (unsigned int k = 0; k < K; k += 32) {
+
+    // read load from global memory to shared memory
+    unsigned int fragA_idx = (threadIdx.x + k) + (threadIdx.y + blockIdx.y * blockDim.y) * 4 * K;
+    unsigned int fragB_idx = (threadIdx.x + blockIdx.x * blockDim.x) * 4 + (threadIdx.y + k) * N;
+    smemA[threadIdx.y][threadIdx.x] = make_float4(*(a + fragA_idx), *(a + fragA_idx + 1 * K), *(a + fragA_idx + 2 * K), *(a + fragA_idx + 3 * K));
+    smemB[threadIdx.y][threadIdx.x] = make_float4(*(b + fragB_idx), *(b + fragB_idx + 1), *(b + fragB_idx + 2), *(b + fragB_idx + 3));
+
+    __syncthreads();
+
+    // calculate fragment
+    #pragma unroll
+    for (int k_tile = 0; k_tile < 32; ++k_tile) {
+      fragA = smemA[threadIdx.y][k_tile];
+      fragB = smemB[k_tile][threadIdx.x];
+  
+      mma4_4(fragA, fragB, tc);
+    }
+
+    __syncthreads();
+    
+  }
+
+
+  #pragma unroll
+  for (int ii = 0; ii < 4; ii++) {
+    float4 * f4c_row = reinterpret_cast<float4 *>(c + (i + ii) * N);
+    f4c_row[j / 4] = tc[ii];
+  }
+
+}
+
+void cuda_gemm_smem_float4(const float * a, const float * b, float *c, int M, int N, int K) {
+
+  dim3 block(32 , 32);
+
+  int tN = (N - 1) / 4 + 1;
+  int tM = (M - 1) / 4 + 1;
+
+  dim3 grid((tN  - 1) / block.x + 1, (tM - 1)/ block.y + 1);
+  cuda_gemm_smem_float4_kernel<<<grid, block>>>(a, b, c, M, N, K);
+  cudaDeviceSynchronize();
+}
