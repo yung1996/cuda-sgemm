@@ -153,6 +153,33 @@ int main(int argc, char* argv[]) {
       func_name = "cuda_gemm_smem_float4";
       break;
 
+    case 8:
+      cuda_gemm_double_smem_float4(d_A, d_B, d_C, M, N, K);
+      CUDA_CHECK(cudaMemcpy(h_C.data(), d_C, sizeC, cudaMemcpyDeviceToHost));
+      CUDA_CHECK(cudaDeviceSynchronize());
+      func_name = "cuda_gemm_double_smem_float4";
+      break;
+
+    case 9:
+      cuda_gemm_double_smem_double_float4(d_A, d_B, d_C, M, N, K);
+      CUDA_CHECK(cudaMemcpy(h_C.data(), d_C, sizeC, cudaMemcpyDeviceToHost));
+      CUDA_CHECK(cudaDeviceSynchronize());
+      func_name = "cuda_gemm_double_smem_double_float4";
+      break;
+
+    case 10:
+      cuda_gemm_double_smem_2x1_float4(d_A, d_B, d_C, M, N, K);
+      CUDA_CHECK(cudaMemcpy(h_C.data(), d_C, sizeC, cudaMemcpyDeviceToHost));
+      CUDA_CHECK(cudaDeviceSynchronize());
+      func_name = "cuda_gemm_double_smem_2x1_float4";
+      break;
+
+    case 11:
+      cuda_gemm_double_smem_4x1_float4(d_A, d_B, d_C, M, N, K);
+      CUDA_CHECK(cudaMemcpy(h_C.data(), d_C, sizeC, cudaMemcpyDeviceToHost));
+      CUDA_CHECK(cudaDeviceSynchronize());
+      func_name = "cuda_gemm_double_smem_4x1_float4";
+      break;
 
     default:
       break;
