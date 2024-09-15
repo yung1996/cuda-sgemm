@@ -24,6 +24,17 @@ inline __device__ void mma4_4(const float4 fragmentA, const float4 fragmentB, fl
   tc[3].w += fragmentA.w * fragmentB.w;
 }
 
+__global__ void warmup_kernel(const float * a, const float * b, float *c, int M, int N, int K) {
+    return;
+}
+
+void warmup(const float * a, const float * b, float *c, int M, int N, int K) {
+  dim3 block(32 , 32);
+  dim3 grid((N  - 1) / block.x + 1, (M - 1)/ block.y + 1);
+  warmup_kernel<<<grid, block>>>(a, b, c, M, N, K);
+}
+
+
 __global__ void cuda_gemm_naive_kernel(const float * a, const float * b, float *c, int M, int N, int K) {
   unsigned int i = threadIdx.y + blockIdx.y * blockDim.y;
   unsigned int j = threadIdx.x + blockIdx.x * blockDim.x;
@@ -42,7 +53,6 @@ void cuda_gemm_naive(const float * a, const float * b, float *c, int M, int N, i
   dim3 block(32 , 32);
   dim3 grid((N  - 1) / block.x + 1, (M - 1)/ block.y + 1);
   cuda_gemm_naive_kernel<<< grid, block>>>(a, b, c, M, N, K);
-  cudaDeviceSynchronize();
 }
 
 __global__ void cuda_gemm_float4_kernel(const float * a, const float * b, float *c, int M, int N, int K) {
@@ -92,7 +102,6 @@ void cuda_gemm_float4(const float * a, const float * b, float *c, int M, int N, 
 
   dim3 grid((tN  - 1) / block.x + 1, (tM - 1)/ block.y + 1);
   cuda_gemm_float4_kernel<<< grid, block>>>(a, b, c, M, N, K);
-  cudaDeviceSynchronize();
 }
 
 __global__ void cuda_gemm_8x8_float4_kernel(const float * a, const float * b, float *c, int M, int N, int K) {
@@ -136,7 +145,6 @@ void cuda_gemm_8x8_float4(const float * a, const float * b, float *c, int M, int
 
   dim3 grid((tN  - 1) / block.x + 1, (tM - 1)/ block.y + 1);
   cuda_gemm_8x8_float4_kernel<<<grid, block>>>(a, b, c, M, N, K);
-  cudaDeviceSynchronize();
 }
 
 __global__ void cuda_gemm_8x8_float4_2_kernel(const float * a, const float * b, float *c, int M, int N, int K) {
@@ -177,10 +185,10 @@ unsigned int i = (threadIdx.y + blockIdx.y * blockDim.y) * 8;
 }
 
 void cuda_gemm_8x8_float4_2(const float * a, const float * b, float *c, int M, int N, int K) {
-  cudaFuncAttributes funcAttrib;
-  cudaError_t err = cudaFuncGetAttributes(&funcAttrib, cuda_gemm_8x8_float4_2_kernel);
+  // cudaFuncAttributes funcAttrib;
+  // cudaError_t err = cudaFuncGetAttributes(&funcAttrib, cuda_gemm_8x8_float4_2_kernel);
   // Print the number of registers used by the kernel
-  std::cout << "Number of registers used by exampleKernel: " << funcAttrib.numRegs << std::endl;
+  // std::cout << "Number of registers used by exampleKernel: " << funcAttrib.numRegs << std::endl;
   dim3 block(16 , 32);
 
   int tN = (N - 1) / 4 + 1;
@@ -188,7 +196,6 @@ void cuda_gemm_8x8_float4_2(const float * a, const float * b, float *c, int M, i
 
   dim3 grid((tN  - 1) / block.x + 1, (tM - 1)/ block.y + 1);
   cuda_gemm_8x8_float4_2_kernel<<<grid, block>>>(a, b, c, M, N, K);
-  cudaDeviceSynchronize();
 }
 
 __global__ void cuda_gemm_8x8_float4_3_kernel(const float * a, const float * b, float *c, int M, int N, int K) {
@@ -249,10 +256,10 @@ unsigned int i = (threadIdx.y + blockIdx.y * blockDim.y) * 8;
 }
 
 void cuda_gemm_8x8_float4_3(const float * a, const float * b, float *c, int M, int N, int K) {
-  cudaFuncAttributes funcAttrib;
-  cudaError_t err = cudaFuncGetAttributes(&funcAttrib, cuda_gemm_8x8_float4_3_kernel);
+  // cudaFuncAttributes funcAttrib;
+  // cudaError_t err = cudaFuncGetAttributes(&funcAttrib, cuda_gemm_8x8_float4_3_kernel);
   // Print the number of registers used by the kernel
-  std::cout << "Number of registers used by exampleKernel: " << funcAttrib.numRegs << std::endl;
+  // std::cout << "Number of registers used by exampleKernel: " << funcAttrib.numRegs << std::endl;
 
   dim3 block(16 , 32);
 
@@ -261,7 +268,6 @@ void cuda_gemm_8x8_float4_3(const float * a, const float * b, float *c, int M, i
 
   dim3 grid((tN  - 1) / block.x + 1, (tM - 1)/ block.y + 1);
   cuda_gemm_8x8_float4_3_kernel<<<grid, block>>>(a, b, c, M, N, K);
-  cudaDeviceSynchronize();
 }
 
 __global__ void cuda_gemm_smem_float4_kernel(const float * a, const float * b, float *c, int M, int N, int K) {
@@ -317,7 +323,6 @@ void cuda_gemm_smem_float4(const float * a, const float * b, float *c, int M, in
 
   dim3 grid((tN  - 1) / block.x + 1, (tM - 1)/ block.y + 1);
   cuda_gemm_smem_float4_kernel<<<grid, block>>>(a, b, c, M, N, K);
-  cudaDeviceSynchronize();
 }
 
 __global__ void cuda_gemm_double_smem_float4_kernel(const float * a, const float * b, float *c, int M, int N, int K) {
@@ -410,7 +415,6 @@ void cuda_gemm_double_smem_float4(const float * a, const float * b, float *c, in
     cudaFuncAttributeMaxDynamicSharedMemorySize, sharedMemorySize);
 
   cuda_gemm_double_smem_float4_kernel<<<grid, block, sharedMemorySize>>>(a, b, c, M, N, K);
-  cudaDeviceSynchronize();
 }
 
 __global__ void cuda_gemm_double_smem_double_float4_kernel(const float * a, const float * b, float *c, int M, int N, int K) {
@@ -525,7 +529,6 @@ void cuda_gemm_double_smem_double_float4(const float * a, const float * b, float
     cudaFuncAttributeMaxDynamicSharedMemorySize, sharedMemorySize);
 
   cuda_gemm_double_smem_double_float4_kernel<<<grid, block, sharedMemorySize>>>(a, b, c, M, N, K);
-  cudaDeviceSynchronize();
 }
 
 
@@ -633,7 +636,6 @@ void cuda_gemm_double_smem_2x1_float4(const float * a, const float * b, float *c
     cudaFuncAttributeMaxDynamicSharedMemorySize, sharedMemorySize);
 
   cuda_gemm_double_smem_2x1_float4_kernel<<<grid, block, sharedMemorySize>>>(a, b, c, M, N, K);
-  cudaDeviceSynchronize();
 }
 
 __global__ void cuda_gemm_double_smem_4x1_float4_kernel(const float * a, const float * b, float *c, int M, int N, int K) {
@@ -731,7 +733,6 @@ __global__ void cuda_gemm_double_smem_4x1_float4_kernel(const float * a, const f
     f4c[(i + 8 + r) * (N / 4) + ((j + 0) / 4)] = tc4x4[2][r];
     f4c[(i + 12 + r) * (N / 4) + ((j + 0) / 4)] = tc4x4[3][r];
   }
-
 }
 
 void cuda_gemm_double_smem_4x1_float4(const float * a, const float * b, float *c, int M, int N, int K) {
@@ -748,5 +749,4 @@ void cuda_gemm_double_smem_4x1_float4(const float * a, const float * b, float *c
     cudaFuncAttributeMaxDynamicSharedMemorySize, sharedMemorySize);
 
   cuda_gemm_double_smem_4x1_float4_kernel<<<grid, block, sharedMemorySize>>>(a, b, c, M, N, K);
-  cudaDeviceSynchronize();
 }

@@ -3,6 +3,7 @@
 #include <chrono>
 #include <string>
 #include <random>
+#include <functional>
 
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
@@ -36,6 +37,88 @@ void print_matrix(const std::vector<float>& matrix, int rows, int cols) {
     std::cout << std::endl;
 }
 
+typedef std::function<void(const float*, const float*, float*, int, int, int)> gemm_func;
+
+
+float run_time_test(gemm_func gemm, int n_iter, const float* a, const float* b, float* c, int M, int N, int K) {
+
+  cudaEvent_t start, stop;
+  cudaEventCreate(&start);
+  cudaEventCreate(&stop);
+
+  float total_elapsedTime = 0.0f;
+  // warm up
+  warmup(a, b, c, M, N, K);
+
+  for (int i = 0; i < n_iter; ++i) {
+    float elapsedTime = 0.0f;
+
+    cudaEventRecord(start, 0);
+
+    gemm(a, b, c, M, N, K);
+
+    cudaEventRecord(stop, 0);
+    cudaEventSynchronize(stop);
+
+    cudaEventElapsedTime(&elapsedTime, start, stop);
+
+    total_elapsedTime += elapsedTime;
+
+    // synchronization
+    CUDA_CHECK(cudaDeviceSynchronize());
+  }
+
+  cudaEventDestroy(start);
+  cudaEventDestroy(stop);
+
+  return total_elapsedTime / n_iter;
+
+}
+
+float run_time_test_cublas(int n_iter, const float* a, const float* b, float* c, int M, int N, int K) {
+
+  // Create cuBLAS handle
+  cublasHandle_t handle;
+  CUBLAS_CHECK(cublasCreate(&handle));
+  float alpha = 1.0f;
+  float beta = 0.0f;
+
+
+  cudaEvent_t start, stop;
+  cudaEventCreate(&start);
+  cudaEventCreate(&stop);
+
+  float total_elapsedTime = 0.0f;
+  // warm up
+  CUBLAS_CHECK(cublasSgemm_v2(handle, CUBLAS_OP_T, CUBLAS_OP_T, M, N, K, &alpha, a, K, b, N, &beta, c, M));
+  CUDA_CHECK(cudaDeviceSynchronize());
+
+  for (int i = 0; i < n_iter; ++i) {
+    float elapsedTime = 0.0f;
+
+    cudaEventRecord(start, 0);
+
+    cublasSgemm_v2(handle, CUBLAS_OP_T, CUBLAS_OP_T, M, N, K, &alpha, a, K, b, N, &beta, c, M);
+
+    cudaEventRecord(stop, 0);
+    cudaEventSynchronize(stop);
+
+    cudaEventElapsedTime(&elapsedTime, start, stop);
+
+    total_elapsedTime += elapsedTime;
+
+    // synchronization
+    CUDA_CHECK(cudaDeviceSynchronize());
+  }
+
+  cudaEventDestroy(start);
+  cudaEventDestroy(stop);
+
+  return total_elapsedTime / n_iter;
+
+}
+
+
 int main(int argc, char* argv[]) {
   // Check if enough arguments are provided
   if (argc < 5) {
@@ -50,6 +133,11 @@ int main(int argc, char* argv[]) {
   int M = (std::stoi(argv[2]) / 4) * 4; // Matrix size M
   int N = (std::stoi(argv[3]) / 4) * 4; // Matrix size
   int K = (std::stoi(argv[4]) / 4) * 4; // Matrix size
+
+  int n_iter = 1;
+  if (argc >= 6) {
+    n_iter =  std::stoi(argv[5]);
+  }
 
   // Initialize matrices A, B, and C with random values
   std::vector<float> h_A(M * K);
@@ -68,15 +156,15 @@ int main(int argc, char* argv[]) {
   std::random_device rd;  // Non-deterministic random number generator
   std::mt19937 gen(rd()); // Seed the generator
 
-  // Define the range [0, 10]
-  std::uniform_int_distribution<int> dis(0, 10);
+  // Define the range [0, 1.0]
+  std::uniform_real_distribution<float> dis(0.0, 1.0);
 
   for (int i = 0; i < M * K; ++i) {
-    int random_number = dis(gen);
+    float random_number = dis(gen);
     h_A[i] = static_cast<float>(random_number);
   }
   for (int i = 0; i < K * N; ++i) {
-    int random_number = dis(gen);
+    float random_number = dis(gen);
     h_B[i] = static_cast<float>(random_number);
   }
 
@@ -96,6 +184,7 @@ int main(int argc, char* argv[]) {
   CUDA_CHECK(cudaMemcpy(d_C, h_C.data(), sizeC, cudaMemcpyHostToDevice));
 
   // Measure time and execute the selected GEMM implementation
+  float avg_elapsedTime = 0.0f;
   auto start = std::chrono::high_resolution_clock::now();
   std::string func_name;
   switch (implementation)
@@ -106,7 +195,7 @@ int main(int argc, char* argv[]) {
       break;
 
     case 1:
-      cuda_gemm_naive(d_A, d_B, d_C, M, N, K);
+      avg_elapsedTime = run_time_test(cuda_gemm_naive, n_iter, d_A, d_B, d_C, M, N, K);
       CUDA_CHECK(cudaMemcpy(h_C.data(), d_C, sizeC, cudaMemcpyDeviceToHost));
       CUDA_CHECK(cudaDeviceSynchronize());
       func_name = "cuda_gemm_naive";
@@ -114,68 +203,69 @@ int main(int argc, char* argv[]) {
     
     case 2:
       // Perform matrix multiplication: C = alpha * A * B + beta * C
-      CUBLAS_CHECK(cublasSgemm_v2(handle, CUBLAS_OP_T, CUBLAS_OP_T, M, N, K, &alpha, d_A, K, d_B, N, &beta, d_C, M));
+      avg_elapsedTime = run_time_test_cublas(n_iter, d_A, d_B, d_C, M, N, K);
       func_name = "cuda_gemm_cublas";
       break;
     
     case 3:
-      cuda_gemm_float4(d_A, d_B, d_C, M, N, K);
+      avg_elapsedTime = run_time_test(cuda_gemm_float4, n_iter, d_A, d_B, d_C, M, N, K);
       CUDA_CHECK(cudaMemcpy(h_C.data(), d_C, sizeC, cudaMemcpyDeviceToHost));
       CUDA_CHECK(cudaDeviceSynchronize());
       func_name = "cuda_gemm_float4";
       break;
 
     case 4:
-      cuda_gemm_8x8_float4(d_A, d_B, d_C, M, N, K);
+      avg_elapsedTime = run_time_test(cuda_gemm_8x8_float4, n_iter, d_A, d_B, d_C, M, N, K);
       CUDA_CHECK(cudaMemcpy(h_C.data(), d_C, sizeC, cudaMemcpyDeviceToHost));
       CUDA_CHECK(cudaDeviceSynchronize());
       func_name = "cuda_gemm_8x8_float4";
       break;
   
     case 5:
-      cuda_gemm_8x8_float4_2(d_A, d_B, d_C, M, N, K);
+      avg_elapsedTime = run_time_test(cuda_gemm_8x8_float4_2, n_iter, d_A, d_B, d_C, M, N, K);
       CUDA_CHECK(cudaMemcpy(h_C.data(), d_C, sizeC, cudaMemcpyDeviceToHost));
       CUDA_CHECK(cudaDeviceSynchronize());
       func_name = "cuda_gemm_8x8_float4_2";
       break;
 
     case 6:
-      cuda_gemm_8x8_float4_3(d_A, d_B, d_C, M, N, K);
+      avg_elapsedTime = run_time_test(cuda_gemm_8x8_float4_3, n_iter, d_A, d_B, d_C, M, N, K);
       CUDA_CHECK(cudaMemcpy(h_C.data(), d_C, sizeC, cudaMemcpyDeviceToHost));
       CUDA_CHECK(cudaDeviceSynchronize());
       func_name = "cuda_gemm_8x8_float4_3";
       break;
 
     case 7:
-      cuda_gemm_smem_float4(d_A, d_B, d_C, M, N, K);
+      avg_elapsedTime = run_time_test(cuda_gemm_smem_float4, n_iter, d_A, d_B, d_C, M, N, K);
       CUDA_CHECK(cudaMemcpy(h_C.data(), d_C, sizeC, cudaMemcpyDeviceToHost));
       CUDA_CHECK(cudaDeviceSynchronize());
       func_name = "cuda_gemm_smem_float4";
       break;
 
     case 8:
-      cuda_gemm_double_smem_float4(d_A, d_B, d_C, M, N, K);
+      avg_elapsedTime = run_time_test(cuda_gemm_double_smem_float4, n_iter, d_A, d_B, d_C, M, N, K);
       CUDA_CHECK(cudaMemcpy(h_C.data(), d_C, sizeC, cudaMemcpyDeviceToHost));
       CUDA_CHECK(cudaDeviceSynchronize());
       func_name = "cuda_gemm_double_smem_float4";
       break;
 
     case 9:
-      cuda_gemm_double_smem_double_float4(d_A, d_B, d_C, M, N, K);
+      avg_elapsedTime = run_time_test(cuda_gemm_double_smem_double_float4, n_iter, d_A, d_B, d_C, M, N, K);
       CUDA_CHECK(cudaMemcpy(h_C.data(), d_C, sizeC, cudaMemcpyDeviceToHost));
       CUDA_CHECK(cudaDeviceSynchronize());
       func_name = "cuda_gemm_double_smem_double_float4";
       break;
 
     case 10:
-      cuda_gemm_double_smem_2x1_float4(d_A, d_B, d_C, M, N, K);
+      avg_elapsedTime = run_time_test(cuda_gemm_double_smem_2x1_float4, n_iter, d_A, d_B, d_C, M, N, K);
       CUDA_CHECK(cudaMemcpy(h_C.data(), d_C, sizeC, cudaMemcpyDeviceToHost));
       CUDA_CHECK(cudaDeviceSynchronize());
       func_name = "cuda_gemm_double_smem_2x1_float4";
       break;
 
     case 11:
-      cuda_gemm_double_smem_4x1_float4(d_A, d_B, d_C, M, N, K);
+      avg_elapsedTime = run_time_test(cuda_gemm_double_smem_4x1_float4, n_iter, d_A, d_B, d_C, M, N, K);
+      // cuda_gemm_double_smem_4x1_float4(d_A, d_B, d_C, M, N, K);
       CUDA_CHECK(cudaMemcpy(h_C.data(), d_C, sizeC, cudaMemcpyDeviceToHost));
       CUDA_CHECK(cudaDeviceSynchronize());
       func_name = "cuda_gemm_double_smem_4x1_float4";
@@ -198,9 +288,9 @@ int main(int argc, char* argv[]) {
   CUDA_CHECK(cudaDeviceSynchronize());
 
   // Copy the result matrix back to host
-  std::cout << "Time for GEMM (" << func_name << "): " 
-            << duration.count() << " seconds" << std::endl;
-
+  std::cout << "Test Function for GEMM: " << func_name << std::endl;
+  std::cout << "Total Elapsed Time: " << duration.count() << " (second)" << std::endl;
+  std::cout << "Average Elapsed Time: " << avg_elapsedTime << "(millisecond)." << std::endl;
   // Free device memory
   CUDA_CHECK(cudaFree(d_A));
   CUDA_CHECK(cudaFree(d_B));
