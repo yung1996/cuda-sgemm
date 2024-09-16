@@ -310,5 +310,40 @@ int main(int argc, char* argv[]) {
   // print_matrix(h_B, K, N);
   // std::cout << "***********" << " Matrix C " << "***********" << std::endl;
   // print_matrix(h_C, M, N);
+  
+  // test
+  // std::vector<std::vector<int>> data(4, std::vector<int>(32, 0));
+
+  // for (int b_row = 0; b_row < 8; ++b_row) {
+  //   for (int b_col = 0; b_col < 32; ++b_col) {
+  //     unsigned int gb_col = ((b_row + 1) % 2) * ((b_col * 2) % 32) + (b_row % 2) * ((b_col * 2 + 1) % 32);
+  //     unsigned int gb_row = ((b_row + 1) % 2) * (b_row + (b_col * 2) / 32)+ (b_row % 2) * ((b_row - 1) + (b_col * 2 + 1) / 32);
+  //     std::cout << "(" <<gb_row << ", " << gb_col << ") ";
+  //     // data[b_row][b_col] = gb_row * 32 + gb_col;
+  //   }
+  //   std::cout << std::endl;
+  // }
+
+  // for (int i = 0; i < data.size(); ++i) {
+  //   for (int j = 0; j < data[0].size(); ++j) {
+  //     std::cout << data[i][j] << " ";
+  //   }
+  //   std::cout << std::endl;
+  // }
+
+  // for (int k_tile = 0; k_tile < 4; ++k_tile) {
+  //   unsigned int k_i = k_tile / 2;
+  //   unsigned int k_j = k_tile % 2;
+
+  //   for (int threadx = 0; threadx < 16; ++threadx) {
+  //     int frag0 = data[k_i * 2][k_j * 16 + threadx];
+  //     int frag1 = data[k_i * 2 + 1][k_j * 16 + threadx];
+  //     std::cout << frag0 << " " << frag1 << " ";
+  //   }
+  //   std::cout << std::endl;
+  // }
+
+
+
   return 0;
 }

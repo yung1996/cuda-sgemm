@@ -420,7 +420,7 @@ void cuda_gemm_double_smem_float4(const float * a, const float * b, float *c, in
 __global__ void cuda_gemm_double_smem_double_float4_kernel(const float * a, const float * b, float *c, int M, int N, int K) {
 
   extern __shared__ float4 smem[];
-  unsigned int b_smem_stride = 34;
+  unsigned int b_smem_stride = 32;
   float4 * smemA = smem; // float4 smemA[2][8][32], col major
   float4 * smemB = smem + 2 * 8 * 32; // float4 smemB[2][8][32]
   unsigned int t_tile = 8;
@@ -430,6 +430,8 @@ __global__ void cuda_gemm_double_smem_double_float4_kernel(const float * a, cons
   unsigned int a_col = tid % 8;
   unsigned int b_row = tid / 32;
   unsigned int b_col = tid % 32;
+  // unsigned int gb_col = ((b_row + 1) % 2) * ((b_col * 2) % 32) + (b_row % 2) * ((b_col * 2 + 1) % 32);
+  // unsigned int gb_row = ((b_row + 1) % 2) * (b_row + (b_col * 2) / 32)+ (b_row % 2) * ((b_row - 1) + (b_col * 2 + 1) / 32);
 
   float4 fragA[2];
   float4 fragB[2];
@@ -472,6 +474,12 @@ __global__ void cuda_gemm_double_smem_double_float4_kernel(const float * a, cons
       fragA[1] = smemA[A_SM_OFFSET * 32 * 8 + (threadIdx.y * 2 + 1) * 8 + k_tile];
       fragB[0] = smemB[B_SM_OFFSET * 8 * b_smem_stride + k_tile * b_smem_stride + threadIdx.x * 2 + 0];
       fragB[1] = smemB[B_SM_OFFSET * 8 * b_smem_stride + k_tile * b_smem_stride + threadIdx.x * 2 + 1];
+
+      // unsigned int k_i = k_tile / 2;
+      // unsigned int k_j = k_tile % 2;
+
+      // fragB[0] = smemB[B_SM_OFFSET * 8 * b_smem_stride + k_i * (b_smem_stride * 2) + k_j * (b_smem_stride / 2) +  threadIdx.x];
+      // fragB[1] = smemB[B_SM_OFFSET * 8 * b_smem_stride + k_i * (b_smem_stride * 2) + (k_j + 2) * (b_smem_stride / 2) +  threadIdx.x];
   
       mma4_4(fragA[0], fragB[0], tc4x4[0]);
       mma4_4(fragA[0], fragB[1], tc4x4[1]);
@@ -493,6 +501,12 @@ __global__ void cuda_gemm_double_smem_double_float4_kernel(const float * a, cons
     fragA[1] = smemA[A_SM_OFFSET * 32 * 8 + (threadIdx.y * 2 + 1) * 8 + k_tile];
     fragB[0] = smemB[B_SM_OFFSET * 8 * b_smem_stride + k_tile * b_smem_stride + threadIdx.x * 2 + 0];
     fragB[1] = smemB[B_SM_OFFSET * 8 * b_smem_stride + k_tile * b_smem_stride + threadIdx.x * 2 + 1];
+
+    // unsigned int k_i = k_tile / 2;
+    // unsigned int k_j = k_tile % 2;
+
+    // fragB[0] = smemB[B_SM_OFFSET * 8 * b_smem_stride + k_i * (b_smem_stride * 2) + k_j * (b_smem_stride / 2) +  threadIdx.x];
+    // fragB[1] = smemB[B_SM_OFFSET * 8 * b_smem_stride + k_i * (b_smem_stride * 2) + (k_j + 2) * (b_smem_stride / 2) +  threadIdx.x];
 
     mma4_4(fragA[0], fragB[0], tc4x4[0]);
     mma4_4(fragA[0], fragB[1], tc4x4[1]);
@@ -516,7 +530,7 @@ __global__ void cuda_gemm_double_smem_double_float4_kernel(const float * a, cons
 }
 
 void cuda_gemm_double_smem_double_float4(const float * a, const float * b, float *c, int M, int N, int K) {
-  constexpr int sharedMemorySize = (2 * 32 * 8 * 4 * 4) + (2 * 8 * 34 * 4 * 4);
+  constexpr int sharedMemorySize = (2 * 32 * 8 * 4 * 4) + (2 * 8 * 32 * 4 * 4);
   dim3 block(16 , 16);
 
   int tN = (N - 1) / 8 + 1;
