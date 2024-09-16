@@ -470,10 +470,14 @@ __global__ void cuda_gemm_double_smem_double_float4_kernel(const float * a, cons
     // calculate fragment
     #pragma unroll
     for (int k_tile = 0; k_tile < t_tile; ++k_tile) {
-      fragA[0] = smemA[A_SM_OFFSET * 32 * 8 + (threadIdx.y * 2 + 0) * 8 + k_tile];
-      fragA[1] = smemA[A_SM_OFFSET * 32 * 8 + (threadIdx.y * 2 + 1) * 8 + k_tile];
-      fragB[0] = smemB[B_SM_OFFSET * 8 * b_smem_stride + k_tile * b_smem_stride + threadIdx.x * 2 + 0];
-      fragB[1] = smemB[B_SM_OFFSET * 8 * b_smem_stride + k_tile * b_smem_stride + threadIdx.x * 2 + 1];
+      // fragA[0] = smemA[A_SM_OFFSET * 32 * 8 + (threadIdx.y * 2 + 0) * 8 + k_tile];
+      // fragA[1] = smemA[A_SM_OFFSET * 32 * 8 + (threadIdx.y * 2 + 1) * 8 + k_tile];
+      // fragB[0] = smemB[B_SM_OFFSET * 8 * b_smem_stride + k_tile * b_smem_stride + threadIdx.x * 2 + 0];
+      // fragB[1] = smemB[B_SM_OFFSET * 8 * b_smem_stride + k_tile * b_smem_stride + threadIdx.x * 2 + 1];
+      fragA[0] = smemA[A_SM_OFFSET * 32 * 8 + (threadIdx.y) * 8 + k_tile];
+      fragA[1] = smemA[A_SM_OFFSET * 32 * 8 + (threadIdx.y + 16) * 8 + k_tile];
+      fragB[0] = smemB[B_SM_OFFSET * 8 * b_smem_stride + k_tile * b_smem_stride + threadIdx.x];
+      fragB[1] = smemB[B_SM_OFFSET * 8 * b_smem_stride + k_tile * b_smem_stride + threadIdx.x + 16];
 
       // unsigned int k_i = k_tile / 2;
       // unsigned int k_j = k_tile % 2;
@@ -497,10 +501,15 @@ __global__ void cuda_gemm_double_smem_double_float4_kernel(const float * a, cons
   // calculate fragment
   #pragma unroll
   for (int k_tile = 0; k_tile < 8; ++k_tile) {
-    fragA[0] = smemA[A_SM_OFFSET * 32 * 8 + (threadIdx.y * 2 + 0) * 8 + k_tile];
-    fragA[1] = smemA[A_SM_OFFSET * 32 * 8 + (threadIdx.y * 2 + 1) * 8 + k_tile];
-    fragB[0] = smemB[B_SM_OFFSET * 8 * b_smem_stride + k_tile * b_smem_stride + threadIdx.x * 2 + 0];
-    fragB[1] = smemB[B_SM_OFFSET * 8 * b_smem_stride + k_tile * b_smem_stride + threadIdx.x * 2 + 1];
+    // fragA[0] = smemA[A_SM_OFFSET * 32 * 8 + (threadIdx.y * 2 + 0) * 8 + k_tile];
+    // fragA[1] = smemA[A_SM_OFFSET * 32 * 8 + (threadIdx.y * 2 + 1) * 8 + k_tile];
+    // fragB[0] = smemB[B_SM_OFFSET * 8 * b_smem_stride + k_tile * b_smem_stride + threadIdx.x * 2 + 0];
+    // fragB[1] = smemB[B_SM_OFFSET * 8 * b_smem_stride + k_tile * b_smem_stride + threadIdx.x * 2 + 1];
+  
+    fragA[0] = smemA[A_SM_OFFSET * 32 * 8 + (threadIdx.y) * 8 + k_tile];
+    fragA[1] = smemA[A_SM_OFFSET * 32 * 8 + (threadIdx.y + 16) * 8 + k_tile];
+    fragB[0] = smemB[B_SM_OFFSET * 8 * b_smem_stride + k_tile * b_smem_stride + threadIdx.x];
+    fragB[1] = smemB[B_SM_OFFSET * 8 * b_smem_stride + k_tile * b_smem_stride + threadIdx.x + 16];
 
     // unsigned int k_i = k_tile / 2;
     // unsigned int k_j = k_tile % 2;
@@ -514,17 +523,32 @@ __global__ void cuda_gemm_double_smem_double_float4_kernel(const float * a, cons
     mma4_4(fragA[1], fragB[1], tc4x4[3]);
   }
 
-  unsigned int i = (threadIdx.y + blockIdx.y * blockDim.y) * 8;
-  unsigned int j = (threadIdx.x + blockIdx.x * blockDim.x) * 8;
+  // unsigned int i = (threadIdx.y + blockIdx.y * blockDim.y) * 8;
+  // unsigned int j = (threadIdx.x + blockIdx.x * blockDim.x) * 8;
 
+  // float4 * f4c = reinterpret_cast<float4 *>(c);
+
+  // #pragma unroll
+  // for(int r = 0; r < 4; r++){
+  //   f4c[(i + 0 + r) * (N / 4) + ((j + 0) / 4)] = tc4x4[0][r];
+  //   f4c[(i + 0 + r) * (N / 4) + ((j + 4) / 4)] = tc4x4[1][r];
+  //   f4c[(i + 4 + r) * (N / 4) + ((j + 0) / 4)] = tc4x4[2][r];
+  //   f4c[(i + 4 + r) * (N / 4) + ((j + 4) / 4)] = tc4x4[3][r];
+  // }
+
+  unsigned int blocki = blockIdx.y * blockDim.y * 8;
+  unsigned int blockj = blockIdx.x * blockDim.x * 8;
+
+  unsigned int threadi = threadIdx.y * 4;
+  unsigned int threadj = threadIdx.x * 4;
   float4 * f4c = reinterpret_cast<float4 *>(c);
 
   #pragma unroll
   for(int r = 0; r < 4; r++){
-    f4c[(i + 0 + r) * (N / 4) + ((j + 0) / 4)] = tc4x4[0][r];
-    f4c[(i + 0 + r) * (N / 4) + ((j + 4) / 4)] = tc4x4[1][r];
-    f4c[(i + 4 + r) * (N / 4) + ((j + 0) / 4)] = tc4x4[2][r];
-    f4c[(i + 4 + r) * (N / 4) + ((j + 4) / 4)] = tc4x4[3][r];
+    f4c[(blocki + threadi + r + 0) * (N / 4) + ((blockj + threadj + 0) / 4)] = tc4x4[0][r];
+    f4c[(blocki + threadi + r + 0) * (N / 4) + ((blockj + threadj + 64) / 4)] = tc4x4[1][r];
+    f4c[(blocki + threadi + r + 64) * (N / 4) + ((blockj + threadj + 0) / 4)] = tc4x4[2][r];
+    f4c[(blocki + threadi + r + 64) * (N / 4) + ((blockj + threadj + 64) / 4)] = tc4x4[3][r];
   }
 
 }
