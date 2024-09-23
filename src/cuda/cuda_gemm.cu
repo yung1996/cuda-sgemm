@@ -224,7 +224,7 @@ unsigned int i = (threadIdx.y + blockIdx.y * blockDim.y) * 8;
   REG_OFFSET ^= 1;
   
   #pragma unroll
-  for(int k = 1; k < K; k++){
+  for (int k = 1; k < K; k++) {
     fragmentA[REG_OFFSET][0] = make_float4(*(a + i * K + k), *(a + (i + 1) * K + k),*(a + (i + 2) * K + k), *(a + (i + 3) * K + k));
     fragmentB[REG_OFFSET][0] = make_float4(*(b + k * N + j), *(b + k * N + j + 1),  *(b + k * N + j + 2),  *(b + k * N + j + 3));
     fragmentA[REG_OFFSET][1] = make_float4(*(a + (i + 4) * K + k), *(a + (i + 5) * K + k),*(a + (i + 6) * K + k), *(a + (i + 7) * K + k));

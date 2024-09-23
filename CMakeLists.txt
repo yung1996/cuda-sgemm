@@ -33,6 +33,9 @@ add_executable(${PROJECT_NAME} ${SOURCE_FILES})
 target_link_libraries(${PROJECT_NAME} cublas)
 target_compile_options(${PROJECT_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:${NVCC_FLAGS}>)
 
+add_executable(smem_64bit_test src/smem_64bit_test.cu)
+add_executable(smem_128bit_test src/smem_128bit_test.cu)
+
 # #假设你想为CUDA目标添加编译选项
 # set_target_properties(${PROJECT_NAME} PROPERTIES
 #     CUDA_NVCC_FLAGS "--ptxas-options=-v"
