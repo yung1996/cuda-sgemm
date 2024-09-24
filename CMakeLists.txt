@@ -23,6 +23,7 @@ enable_language(CUDA)
 set(SOURCE_FILES
   src/gemm_test.cpp 
   src/cuda/cuda_gemm.cu
+  src/cuda/sgemm.cu
   # Add other .cpp and .cu files here
 
   src/cpu/cpu_naive.cpp

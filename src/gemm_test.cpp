@@ -9,6 +9,7 @@
 #include <cuda_runtime.h>
 #include <cpu_gemm.hpp>
 #include <cuda_gemm.hpp>
+#include <sgemm.hpp>
 
 // Error checking macro
 #define CUDA_CHECK(call) do { \
@@ -118,6 +119,17 @@ float run_time_test_cublas(int n_iter, const float* a, const float* b, float* c,
 
 }
 
+void transpose(const float* input, float* output, int rows, int cols) {
+    // Loop over the input matrix
+    for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
+            // Calculate the corresponding index in the 1D array
+            // Transpose element from (i, j) to (j, i)
+            output[j * rows + i] = input[i * cols + j];
+        }
+    }
+}
+
 
 int main(int argc, char* argv[]) {
   // Check if enough arguments are provided
@@ -141,6 +153,7 @@ int main(int argc, char* argv[]) {
 
   // Initialize matrices A, B, and C with random values
   std::vector<float> h_A(M * K);
+  std::vector<float> h_AT(K * M);
   std::vector<float> h_B(K * N);
   std::vector<float> h_C(M * N, 0.0f);
 
@@ -168,18 +181,24 @@ int main(int argc, char* argv[]) {
     h_B[i] = static_cast<float>(random_number);
   }
 
+  // row major
+  transpose(h_A.data(), h_AT.data(), M, K);
+
+
   // set up cuda matrix
   size_t sizeA = M * K * sizeof(float);
   size_t sizeB = K * N * sizeof(float);
   size_t sizeC = M * N * sizeof(float);
 
-  float *d_A, *d_B, *d_C;
+  float *d_A, *d_B, *d_C, *d_AT;
   CUDA_CHECK(cudaMalloc(&d_A, sizeA));
+  CUDA_CHECK(cudaMalloc(&d_AT, sizeA));
   CUDA_CHECK(cudaMalloc(&d_B, sizeB));
   CUDA_CHECK(cudaMalloc(&d_C, sizeC));
 
   // Copy matrices from host to device
   CUDA_CHECK(cudaMemcpy(d_A, h_A.data(), sizeA, cudaMemcpyHostToDevice));
+  CUDA_CHECK(cudaMemcpy(d_AT, h_AT.data(), sizeA, cudaMemcpyHostToDevice));
   CUDA_CHECK(cudaMemcpy(d_B, h_B.data(), sizeB, cudaMemcpyHostToDevice));
   CUDA_CHECK(cudaMemcpy(d_C, h_C.data(), sizeC, cudaMemcpyHostToDevice));
 
@@ -271,6 +290,12 @@ int main(int argc, char* argv[]) {
       func_name = "cuda_gemm_double_smem_4x1_float4";
       break;
 
+    case 12:
+      avg_elapsedTime = run_time_test(sgemm_128x128x8, n_iter, d_AT, d_B, d_C, M, N, K);
+      CUDA_CHECK(cudaMemcpy(h_C.data(), d_C, sizeC, cudaMemcpyDeviceToHost));
+      CUDA_CHECK(cudaDeviceSynchronize());
+      func_name = "sgemm_128x128x8";
+      break;
     default:
       break;
   }
@@ -293,6 +318,7 @@ int main(int argc, char* argv[]) {
   std::cout << "Average Elapsed Time: " << avg_elapsedTime << "(millisecond)." << std::endl;
   // Free device memory
   CUDA_CHECK(cudaFree(d_A));
+  CUDA_CHECK(cudaFree(d_AT));
   CUDA_CHECK(cudaFree(d_B));
   CUDA_CHECK(cudaFree(d_C));
   // std::cout << "***********" << " Matrix A " << "***********" << std::endl;
