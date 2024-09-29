@@ -119,5 +119,15 @@ int main() {
   smem_8<<<1, 32>>>(d_a);
   cudaFree(d_a);
   cudaDeviceSynchronize();
+
+  for (int id = 0; id < 128; ++id) {
+    int height = 16;
+    int flag = id / (height * 2) % 2;
+    const u_int32_t lane_x = ((flag + 1) % 2) * (id / 2) % height + (flag % 2) * (height - 1 - (id / 2) % height);
+    const u_int32_t lane_y = (id / (height * 2)) * 2 + id % 2;
+    std::cout << "id: " << id << " ( " << lane_y << ", " << lane_x << ")" << "  flag: " << flag <<std::endl;
+  }
+
+
   return 0;
 }

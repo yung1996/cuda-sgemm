@@ -3,14 +3,11 @@
 #include <cuda_runtime.h>
 #include <stdio.h>
 #include <iostream>
-#define M_TILE 128
+__device__ const u_int32_t M_TILE = 128;
 #define N_TILE 128
 #define K_TILE 8
 
 #define FLOAT4_WORD_NUM (sizeof(float4) / sizeof(float))
-
-#define M_TILE_FLOAT4 M_TILE / FLOAT4_WORD_NUM
-#define N_TILE_FLOAT4 N_TILE / FLOAT4_WORD_NUM
 
 #define LANE_HEIGHT 4 // 4 sizeof(float4)
 #define LANE_WIDTH 8 // 8 sizeof(float4)
@@ -21,11 +18,17 @@
 #define WARP_X_GLB_STRIDE 64 / FLOAT4_WORD_NUM
 #define WARP_Y_GLB_STRIDE 2 * WARP_X_GLB_STRIDE
 
+__device__ constexpr u_int32_t M_TILE_FLOAT4  = M_TILE / FLOAT4_WORD_NUM;
+__device__ constexpr u_int32_t N_TILE_FLOAT4  = N_TILE / FLOAT4_WORD_NUM;
+
+__device__ constexpr u_int32_t A_SMEM_OFFSET_STRIDE = M_TILE_FLOAT4 * K_TILE;
+__device__ constexpr u_int32_t B_SMEM_OFFSET_STRIDE = N_TILE_FLOAT4 * K_TILE;
+
 inline __device__ __host__ u_int32_t div_ceil(u_int32_t a, u_int32_t b) {
     return (a - 1) / b + 1;
 }
 
-inline __device__ void mma4x4(const float4 fragmentA, const float4 fragmentB, float4 * tc){
+inline __device__ void mma4x4(const float4 & fragmentA, const float4 & fragmentB, float4 * tc){
   tc[0].x += fragmentA.x * fragmentB.x;
   tc[0].y += fragmentA.x * fragmentB.y;
   tc[0].z += fragmentA.x * fragmentB.z;
@@ -46,20 +49,6 @@ inline __device__ void mma4x4(const float4 fragmentA, const float4 fragmentB, fl
   tc[3].z += fragmentA.w * fragmentB.z;
   tc[3].w += fragmentA.w * fragmentB.w;
 }
-
-// __constant__ u_int32_t M_TILE = 128;
-// __constant__ u_int32_t N_TILE = 128;
-// __constant__ u_int32_t K_TILE = 8;
-
-// __constant__ u_int32_t FLOAT4_WORD_NUM = sizeof(float4) / sizeof(float);
-
-// Warp id stride
-// __constant__ u_int32_t warp_x_stride = 64 / FLOAT4_WORD_NUM;
-// __constant__ u_int32_t warp_y_stride = 2 * warp_x_stride;
-
-// Lane id Stride
-// __constant__ u_int32_t lane_x_stride = 1;
-// __constant__ u_int32_t lane_y_stride = 8;
 
 __global__ void sgemm_128x128x8_kernel(const float * a, const float * b, float *c, int M, int N, int K) {
   // shared memory
@@ -83,18 +72,20 @@ __global__ void sgemm_128x128x8_kernel(const float * a, const float * b, float *
   const u_int32_t warp_id = threadIdx.x / 32;
   const u_int32_t warp_x = warp_id % 2;
   const u_int32_t warp_y = warp_id / 2;
-  // printf("warp_x %d, warp_y %d\n", warp_x, warp_y);
+
   // 4 x 8 threads for each warp
   const u_int32_t lane_id = threadIdx.x % 32;
   const u_int32_t lane_x = (lane_id / 2) % 8;
   const u_int32_t lane_y = (lane_id / 16) * 2 + lane_id % 2;
-  // printf("threadId %d, warp_x %d, warp_y %d, lane_x %d, lane_y %d\n", threadIdx.x, warp_x, warp_y, lane_x, lane_y);
-  // block indexs
+
+
+  const u_int32_t block_id = blockIdx.y * gridDim.x + blockIdx.x;
+
   const u_int32_t block_x = blockIdx.x;
   const u_int32_t block_y = blockIdx.y;
 
-  const u_int32_t block_dim_x = N_TILE_FLOAT4;
-  const u_int32_t block_dim_y = M_TILE_FLOAT4;
+  constexpr u_int32_t block_dim_x = N_TILE_FLOAT4;
+  constexpr u_int32_t block_dim_y = M_TILE_FLOAT4;
 
   // block strides, a is column-major order, b is row-major order
   const u_int32_t a_block_x_stride = M / FLOAT4_WORD_NUM;
@@ -174,10 +165,10 @@ __global__ void sgemm_128x128x8_kernel(const float * a, const float * b, float *
 
     #pragma unroll
     for (int k_tile_smem = 0; k_tile_smem < K_TILE; ++k_tile_smem) {
-      u_int32_t a_smem_ld_0 = A_SM_OFFSET * M_TILE_FLOAT4 * K_TILE + k_tile_smem * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y;
-      u_int32_t a_smem_ld_1 = A_SM_OFFSET * M_TILE_FLOAT4 * K_TILE + k_tile_smem * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y + LANE_HEIGHT;
-      u_int32_t b_smem_ld_0 = B_SM_OFFSET * N_TILE_FLOAT4 * K_TILE + k_tile_smem * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x;
-      u_int32_t b_smem_ld_1 = B_SM_OFFSET * N_TILE_FLOAT4 * K_TILE + k_tile_smem * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x + LANE_WIDTH;
+      u_int32_t a_smem_ld_0 = A_SM_OFFSET * A_SMEM_OFFSET_STRIDE + k_tile_smem * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y;
+      u_int32_t a_smem_ld_1 = A_SM_OFFSET * A_SMEM_OFFSET_STRIDE + k_tile_smem * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y + LANE_HEIGHT;
+      u_int32_t b_smem_ld_0 = B_SM_OFFSET * B_SMEM_OFFSET_STRIDE + k_tile_smem * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x;
+      u_int32_t b_smem_ld_1 = B_SM_OFFSET * B_SMEM_OFFSET_STRIDE + k_tile_smem * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x + LANE_WIDTH;
 
       frag_a[0] = smem_a[a_smem_ld_0];
       frag_a[1] = smem_a[a_smem_ld_1];
@@ -200,10 +191,10 @@ __global__ void sgemm_128x128x8_kernel(const float * a, const float * b, float *
 
   #pragma unroll
   for (int k_tile_smem = 0; k_tile_smem < K_TILE; ++k_tile_smem) {
-    u_int32_t a_smem_ld_0 = A_SM_OFFSET * M_TILE_FLOAT4 * K_TILE + k_tile_smem * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y;
-    u_int32_t a_smem_ld_1 = A_SM_OFFSET * M_TILE_FLOAT4 * K_TILE + k_tile_smem * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y + LANE_HEIGHT;
-    u_int32_t b_smem_ld_0 = B_SM_OFFSET * N_TILE_FLOAT4 * K_TILE + k_tile_smem * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x;
-    u_int32_t b_smem_ld_1 = B_SM_OFFSET * N_TILE_FLOAT4 * K_TILE + k_tile_smem * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x + LANE_WIDTH;
+    u_int32_t a_smem_ld_0 = A_SM_OFFSET * A_SMEM_OFFSET_STRIDE + k_tile_smem * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y;
+    u_int32_t a_smem_ld_1 = A_SM_OFFSET * A_SMEM_OFFSET_STRIDE + k_tile_smem * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y + LANE_HEIGHT;
+    u_int32_t b_smem_ld_0 = B_SM_OFFSET * B_SMEM_OFFSET_STRIDE + k_tile_smem * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x;
+    u_int32_t b_smem_ld_1 = B_SM_OFFSET * B_SMEM_OFFSET_STRIDE + k_tile_smem * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x + LANE_WIDTH;
 
     frag_a[0] = smem_a[a_smem_ld_0];
     frag_a[1] = smem_a[a_smem_ld_1];

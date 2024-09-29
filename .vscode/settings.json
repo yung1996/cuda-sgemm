@@ -68,6 +68,7 @@
     "numbers": "cpp",
     "semaphore": "cpp",
     "stop_token": "cpp",
-    "__bit_reference": "cpp"
+    "__bit_reference": "cpp",
+    "locale": "cpp"
   }
 }
