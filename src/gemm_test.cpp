@@ -327,9 +327,9 @@ int main(int argc, char* argv[]) {
   // print_matrix(h_B, K, N);
   // std::cout << "***********" << " Matrix C " << "***********" << std::endl;
   // print_matrix(h_C, M, N);
-  // std::cout << h_C[0] << ", " <<  h_C[2024] << std::endl;
-  // cpu_gemm_naive(h_A.data(), h_B.data(), h_C.data(), M, N, K);
-  // std::cout << h_C[0] << ", " <<  h_C[2024] << std::endl;
+  std::cout << h_C[0] << ", " <<  h_C[2024] << std::endl;
+  cpu_gemm_naive(h_A.data(), h_B.data(), h_C.data(), M, N, K);
+  std::cout << h_C[0] << ", " <<  h_C[2024] << std::endl;
   // std::cout << "***********" << " Matrix A " << "***********" << std::endl;
   // print_matrix(h_A, M, K);
   // std::cout << "***********" << " Matrix B " << "***********" << std::endl;

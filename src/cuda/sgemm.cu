@@ -3,31 +3,25 @@
 #include <cuda_runtime.h>
 #include <stdio.h>
 #include <iostream>
+// Basic definition about a shared memory
+__device__ constexpr u_int32_t FLOAT4_WORD_NUM  = (sizeof(float4) / sizeof(float));  // length of floats for float4
 __device__ const u_int32_t M_TILE = 128;
-#define N_TILE 128
-#define K_TILE 8
-
-#define FLOAT4_WORD_NUM (sizeof(float4) / sizeof(float))
-
-#define LANE_HEIGHT 4 // 4 sizeof(float4)
-#define LANE_WIDTH 8 // 8 sizeof(float4)
-
-#define WARP_HEIGHT 2 * LANE_HEIGHT
-#define WARP_WIDTH 2 * LANE_WIDTH
-
-#define WARP_X_GLB_STRIDE 64 / FLOAT4_WORD_NUM
-#define WARP_Y_GLB_STRIDE 2 * WARP_X_GLB_STRIDE
-
+__device__ const u_int32_t N_TILE = 128;
+__device__ const u_int32_t K_TILE = 8;
+// 1 lane grid = 4 x 8 x FLOAT4_WORD_NUM
+__device__ const u_int32_t LANE_HEIGHT = 4;  // 4 sizeof(float4)
+__device__ const u_int32_t LANE_WIDTH = 8;  // 8 sizeof(float4)
+// 1 warp grid = 2 x 2 lane grid = ((2 x 4) x (2 x 8) == 8 x 16) x FLOAT4_WORD_NUM
+__device__ constexpr u_int32_t  WARP_HEIGHT = 2 * LANE_HEIGHT;
+__device__ constexpr u_int32_t WARP_WIDTH = 2 * LANE_WIDTH;
+// How many float4s for M and N tile
 __device__ constexpr u_int32_t M_TILE_FLOAT4  = M_TILE / FLOAT4_WORD_NUM;
 __device__ constexpr u_int32_t N_TILE_FLOAT4  = N_TILE / FLOAT4_WORD_NUM;
-
+// Used for double buffer of shared memory
 __device__ constexpr u_int32_t A_SMEM_OFFSET_STRIDE = M_TILE_FLOAT4 * K_TILE;
 __device__ constexpr u_int32_t B_SMEM_OFFSET_STRIDE = N_TILE_FLOAT4 * K_TILE;
 
-inline __device__ __host__ u_int32_t div_ceil(u_int32_t a, u_int32_t b) {
-    return (a - 1) / b + 1;
-}
-
+// float4 matrix multiplication
 inline __device__ void mma4x4(const float4 & fragmentA, const float4 & fragmentB, float4 * tc){
   tc[0].x += fragmentA.x * fragmentB.x;
   tc[0].y += fragmentA.x * fragmentB.y;
@@ -51,22 +45,20 @@ inline __device__ void mma4x4(const float4 & fragmentA, const float4 & fragmentB
 }
 
 __global__ void sgemm_128x128x8_kernel(const float * a, const float * b, float *c, int M, int N, int K) {
-  // shared memory
+  // total shared memory
   __shared__ __align__(32 *sizeof(float)) float smem[2 * M_TILE * K_TILE + 2 * K_TILE * N_TILE];
-
   float4 * smem_a = reinterpret_cast<float4*>(smem);
   float4 * smem_b = reinterpret_cast<float4*>(smem + 2 * M_TILE * K_TILE);
-
+  // parse global memory from float 4 * to float4 *
   float4 * glb_a = reinterpret_cast<float4*>(const_cast<float*>(a));
   float4 * glb_b = reinterpret_cast<float4*>(const_cast<float*>(b));
   float4 * glb_c = reinterpret_cast<float4*>(const_cast<float*>(c));
 
-  
   // 256 threads for each block
-  const u_int32_t M_tiles = div_ceil(M, M_TILE);
-  const u_int32_t N_tiles = div_ceil(N, N_TILE);
-  const u_int32_t K_tiles = div_ceil(K, K_TILE);
-  // printf("K_tiles: %d\n", K_tiles);
+  // Calculate how many tiles for each dimension (M, N, K)
+  const u_int32_t M_tiles = (M - 1) / M_TILE + 1;
+  const u_int32_t N_tiles = (N - 1) / N_TILE + 1;
+  const u_int32_t K_tiles = (K - 1) / K_TILE + 1;
 
   // 4 x 2 warps for each block
   const u_int32_t warp_id = threadIdx.x / 32;
@@ -78,9 +70,6 @@ __global__ void sgemm_128x128x8_kernel(const float * a, const float * b, float *
   const u_int32_t lane_x = (lane_id / 2) % 8;
   const u_int32_t lane_y = (lane_id / 16) * 2 + lane_id % 2;
 
-
-  const u_int32_t block_id = blockIdx.y * gridDim.x + blockIdx.x;
-
   const u_int32_t block_x = blockIdx.x;
   const u_int32_t block_y = blockIdx.y;
 
@@ -91,7 +80,7 @@ __global__ void sgemm_128x128x8_kernel(const float * a, const float * b, float *
   const u_int32_t a_block_x_stride = M / FLOAT4_WORD_NUM;
   const u_int32_t a_block_y_stide = 1;
   const u_int32_t b_block_x_stride = 1;
-  const u_int32_t b_block_y_stide = N / FLOAT4_WORD_NUM;
+  const u_int32_t b_block_y_stide =  N / FLOAT4_WORD_NUM;
 
   const u_int32_t c_glb_st_x_stride = 1;
   const u_int32_t c_glb_st_y_stride = N / FLOAT4_WORD_NUM;
