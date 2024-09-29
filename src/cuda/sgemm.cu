@@ -25,13 +25,6 @@ inline __device__ __host__ u_int32_t div_ceil(u_int32_t a, u_int32_t b) {
     return (a - 1) / b + 1;
 }
 
-inline __device__ __host__ void float4_add(float4 & a, float4 & b) {
-  a.x += b.x;
-  a.y += b.y;
-  a.z += b.z;
-  a.w += b.w;
-}
-
 inline __device__ void mma4x4(const float4 fragmentA, const float4 fragmentB, float4 * tc){
   tc[0].x += fragmentA.x * fragmentB.x;
   tc[0].y += fragmentA.x * fragmentB.y;
@@ -148,9 +141,6 @@ __global__ void sgemm_128x128x8_kernel(const float * a, const float * b, float *
   u_int32_t A_SM_OFFSET = 0;
   u_int32_t B_SM_OFFSET = 0;
 
-  // register level double buffer
-  u_int32_t REG_OFFSET = 0;
-
   // [Matrix A]: load from global memory to shared memory
   smem_a[a_smem_st_addr] = glb_a[a_glb_ld_addr];
 
@@ -162,10 +152,10 @@ __global__ void sgemm_128x128x8_kernel(const float * a, const float * b, float *
   A_SM_OFFSET ^= 1;
   B_SM_OFFSET ^= 1;
 
-  float4 frag_a[2][2];
-  float4 frag_b[2][2];
+  float4 frag_a[2];
+  float4 frag_b[2];
   float4 tc_zero = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
-  float4 tc4x4[2][4][4] = {{make_float4(0.0f, 0.0f, 0.0f, 0.0f)}};
+  float4 tc4x4[4][4] = {{make_float4(0.0f, 0.0f, 0.0f, 0.0f)}};
   // printf("block_x: %d, block_y: %d\n", block_x, block_y);
 
   for (u_int32_t k_tile_idx = 1; k_tile_idx < K_tiles; ++k_tile_idx) {
@@ -181,62 +171,24 @@ __global__ void sgemm_128x128x8_kernel(const float * a, const float * b, float *
     B_SM_OFFSET ^= 1;
 
     // compute fragment
-    if (REG_OFFSET) {
-      frag_a[1][0] = smem_a[A_SM_OFFSET * M_TILE_FLOAT4 * K_TILE + 0 * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y];
-      frag_a[1][1] = smem_a[A_SM_OFFSET * M_TILE_FLOAT4 * K_TILE + 0 * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y + LANE_HEIGHT];
-      frag_b[1][0] = smem_b[B_SM_OFFSET * N_TILE_FLOAT4 * K_TILE + 0 * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x];
-      frag_b[1][1] = smem_b[B_SM_OFFSET * N_TILE_FLOAT4 * K_TILE + 0 * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x + LANE_WIDTH];  
-    } else {
-      frag_a[0][0] = smem_a[A_SM_OFFSET * M_TILE_FLOAT4 * K_TILE + 0 * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y];
-      frag_a[0][1] = smem_a[A_SM_OFFSET * M_TILE_FLOAT4 * K_TILE + 0 * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y + LANE_HEIGHT];
-      frag_b[0][0] = smem_b[B_SM_OFFSET * N_TILE_FLOAT4 * K_TILE + 0 * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x];
-      frag_b[0][1] = smem_b[B_SM_OFFSET * N_TILE_FLOAT4 * K_TILE + 0 * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x + LANE_WIDTH];
-    }
-
-    REG_OFFSET ^= 1;
 
     #pragma unroll
-    for (int k_tile_smem = 1; k_tile_smem < K_TILE; ++k_tile_smem) {
-      if (REG_OFFSET) {
-        frag_a[1][0] = smem_a[A_SM_OFFSET * M_TILE_FLOAT4 * K_TILE + k_tile_smem * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y];
-        frag_a[1][1] = smem_a[A_SM_OFFSET * M_TILE_FLOAT4 * K_TILE + k_tile_smem * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y + LANE_HEIGHT];
-        frag_b[1][0] = smem_b[B_SM_OFFSET * N_TILE_FLOAT4 * K_TILE + k_tile_smem * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x];
-        frag_b[1][1] = smem_b[B_SM_OFFSET * N_TILE_FLOAT4 * K_TILE + k_tile_smem * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x + LANE_WIDTH];  
-      } else {
-        frag_a[0][0] = smem_a[A_SM_OFFSET * M_TILE_FLOAT4 * K_TILE + k_tile_smem * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y];
-        frag_a[0][1] = smem_a[A_SM_OFFSET * M_TILE_FLOAT4 * K_TILE + k_tile_smem * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y + LANE_HEIGHT];
-        frag_b[0][0] = smem_b[B_SM_OFFSET * N_TILE_FLOAT4 * K_TILE + k_tile_smem * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x];
-        frag_b[0][1] = smem_b[B_SM_OFFSET * N_TILE_FLOAT4 * K_TILE + k_tile_smem * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x + LANE_WIDTH];
-      }
+    for (int k_tile_smem = 0; k_tile_smem < K_TILE; ++k_tile_smem) {
+      u_int32_t a_smem_ld_0 = A_SM_OFFSET * M_TILE_FLOAT4 * K_TILE + k_tile_smem * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y;
+      u_int32_t a_smem_ld_1 = A_SM_OFFSET * M_TILE_FLOAT4 * K_TILE + k_tile_smem * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y + LANE_HEIGHT;
+      u_int32_t b_smem_ld_0 = B_SM_OFFSET * N_TILE_FLOAT4 * K_TILE + k_tile_smem * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x;
+      u_int32_t b_smem_ld_1 = B_SM_OFFSET * N_TILE_FLOAT4 * K_TILE + k_tile_smem * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x + LANE_WIDTH;
 
-      REG_OFFSET ^= 1;
+      frag_a[0] = smem_a[a_smem_ld_0];
+      frag_a[1] = smem_a[a_smem_ld_1];
+      frag_b[0] = smem_b[b_smem_ld_0];
+      frag_b[1] = smem_b[b_smem_ld_1];
 
-      if (REG_OFFSET) {
-        mma4x4(frag_a[1][0], frag_b[1][0], tc4x4[1][0]);
-        mma4x4(frag_a[1][0], frag_b[1][1], tc4x4[1][1]);
-        mma4x4(frag_a[1][1], frag_b[1][0], tc4x4[1][2]);
-        mma4x4(frag_a[1][1], frag_b[1][1], tc4x4[1][3]);
-      } else {
-        mma4x4(frag_a[0][0], frag_b[0][0], tc4x4[0][0]);
-        mma4x4(frag_a[0][0], frag_b[0][1], tc4x4[0][1]);
-        mma4x4(frag_a[0][1], frag_b[0][0], tc4x4[0][2]);
-        mma4x4(frag_a[0][1], frag_b[0][1], tc4x4[0][3]); 
-      }
+      mma4x4(frag_a[0], frag_b[0], tc4x4[0]);
+      mma4x4(frag_a[0], frag_b[1], tc4x4[1]);
+      mma4x4(frag_a[1], frag_b[0], tc4x4[2]);
+      mma4x4(frag_a[1], frag_b[1], tc4x4[3]);
 
-    }
-
-    REG_OFFSET ^= 1;
-
-    if (REG_OFFSET) {
-      mma4x4(frag_a[1][0], frag_b[1][0], tc4x4[1][0]);
-      mma4x4(frag_a[1][0], frag_b[1][1], tc4x4[1][1]);
-      mma4x4(frag_a[1][1], frag_b[1][0], tc4x4[1][2]);
-      mma4x4(frag_a[1][1], frag_b[1][1], tc4x4[1][3]);
-    } else {
-      mma4x4(frag_a[0][0], frag_b[0][0], tc4x4[0][0]);
-      mma4x4(frag_a[0][0], frag_b[0][1], tc4x4[0][1]);
-      mma4x4(frag_a[0][1], frag_b[0][0], tc4x4[0][2]);
-      mma4x4(frag_a[0][1], frag_b[0][1], tc4x4[0][3]); 
     }
 
     __syncthreads();
@@ -246,65 +198,24 @@ __global__ void sgemm_128x128x8_kernel(const float * a, const float * b, float *
   A_SM_OFFSET ^= 1;
   B_SM_OFFSET ^= 1;
 
-  // compute fragment
-  if (REG_OFFSET) {
-    frag_a[1][0] = smem_a[A_SM_OFFSET * M_TILE_FLOAT4 * K_TILE + 0 * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y];
-    frag_a[1][1] = smem_a[A_SM_OFFSET * M_TILE_FLOAT4 * K_TILE + 0 * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y + LANE_HEIGHT];
-    frag_b[1][0] = smem_b[B_SM_OFFSET * N_TILE_FLOAT4 * K_TILE + 0 * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x];
-    frag_b[1][1] = smem_b[B_SM_OFFSET * N_TILE_FLOAT4 * K_TILE + 0 * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x + LANE_WIDTH];  
-  } else {
-    frag_a[0][0] = smem_a[A_SM_OFFSET * M_TILE_FLOAT4 * K_TILE + 0 * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y];
-    frag_a[0][1] = smem_a[A_SM_OFFSET * M_TILE_FLOAT4 * K_TILE + 0 * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y + LANE_HEIGHT];
-    frag_b[0][0] = smem_b[B_SM_OFFSET * N_TILE_FLOAT4 * K_TILE + 0 * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x];
-    frag_b[0][1] = smem_b[B_SM_OFFSET * N_TILE_FLOAT4 * K_TILE + 0 * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x + LANE_WIDTH];
-  }
-
-  REG_OFFSET ^= 1;
-
   #pragma unroll
-  for (int k_tile_smem = 1; k_tile_smem < K_TILE; ++k_tile_smem) {
-    if (REG_OFFSET) {
-      frag_a[1][0] = smem_a[A_SM_OFFSET * M_TILE_FLOAT4 * K_TILE + k_tile_smem * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y];
-      frag_a[1][1] = smem_a[A_SM_OFFSET * M_TILE_FLOAT4 * K_TILE + k_tile_smem * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y + LANE_HEIGHT];
-      frag_b[1][0] = smem_b[B_SM_OFFSET * N_TILE_FLOAT4 * K_TILE + k_tile_smem * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x];
-      frag_b[1][1] = smem_b[B_SM_OFFSET * N_TILE_FLOAT4 * K_TILE + k_tile_smem * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x + LANE_WIDTH];  
-    } else {
-      frag_a[0][0] = smem_a[A_SM_OFFSET * M_TILE_FLOAT4 * K_TILE + k_tile_smem * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y];
-      frag_a[0][1] = smem_a[A_SM_OFFSET * M_TILE_FLOAT4 * K_TILE + k_tile_smem * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y + LANE_HEIGHT];
-      frag_b[0][0] = smem_b[B_SM_OFFSET * N_TILE_FLOAT4 * K_TILE + k_tile_smem * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x];
-      frag_b[0][1] = smem_b[B_SM_OFFSET * N_TILE_FLOAT4 * K_TILE + k_tile_smem * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x + LANE_WIDTH];
-    }
+  for (int k_tile_smem = 0; k_tile_smem < K_TILE; ++k_tile_smem) {
+    u_int32_t a_smem_ld_0 = A_SM_OFFSET * M_TILE_FLOAT4 * K_TILE + k_tile_smem * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y;
+    u_int32_t a_smem_ld_1 = A_SM_OFFSET * M_TILE_FLOAT4 * K_TILE + k_tile_smem * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y + LANE_HEIGHT;
+    u_int32_t b_smem_ld_0 = B_SM_OFFSET * N_TILE_FLOAT4 * K_TILE + k_tile_smem * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x;
+    u_int32_t b_smem_ld_1 = B_SM_OFFSET * N_TILE_FLOAT4 * K_TILE + k_tile_smem * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x + LANE_WIDTH;
 
-    REG_OFFSET ^= 1;
+    frag_a[0] = smem_a[a_smem_ld_0];
+    frag_a[1] = smem_a[a_smem_ld_1];
+    frag_b[0] = smem_b[b_smem_ld_0];
+    frag_b[1] = smem_b[b_smem_ld_1];
 
-    if (REG_OFFSET) {
-      mma4x4(frag_a[1][0], frag_b[1][0], tc4x4[1][0]);
-      mma4x4(frag_a[1][0], frag_b[1][1], tc4x4[1][1]);
-      mma4x4(frag_a[1][1], frag_b[1][0], tc4x4[1][2]);
-      mma4x4(frag_a[1][1], frag_b[1][1], tc4x4[1][3]);
-    } else {
-      mma4x4(frag_a[0][0], frag_b[0][0], tc4x4[0][0]);
-      mma4x4(frag_a[0][0], frag_b[0][1], tc4x4[0][1]);
-      mma4x4(frag_a[0][1], frag_b[0][0], tc4x4[0][2]);
-      mma4x4(frag_a[0][1], frag_b[0][1], tc4x4[0][3]); 
-    }
+    mma4x4(frag_a[0], frag_b[0], tc4x4[0]);
+    mma4x4(frag_a[0], frag_b[1], tc4x4[1]);
+    mma4x4(frag_a[1], frag_b[0], tc4x4[2]);
+    mma4x4(frag_a[1], frag_b[1], tc4x4[3]);
 
   }
-  
-  REG_OFFSET ^= 1;
-
-  if (REG_OFFSET) {
-    mma4x4(frag_a[1][0], frag_b[1][0], tc4x4[1][0]);
-    mma4x4(frag_a[1][0], frag_b[1][1], tc4x4[1][1]);
-    mma4x4(frag_a[1][1], frag_b[1][0], tc4x4[1][2]);
-    mma4x4(frag_a[1][1], frag_b[1][1], tc4x4[1][3]);
-  } else {
-    mma4x4(frag_a[0][0], frag_b[0][0], tc4x4[0][0]);
-    mma4x4(frag_a[0][0], frag_b[0][1], tc4x4[0][1]);
-    mma4x4(frag_a[0][1], frag_b[0][0], tc4x4[0][2]);
-    mma4x4(frag_a[0][1], frag_b[0][1], tc4x4[0][3]); 
-  }
-  
 
   u_int32_t c_glb_st_x_0 = block_x * block_dim_x + warp_x * WARP_WIDTH + lane_x;
   u_int32_t c_glb_st_x_1 = block_x * block_dim_x + warp_x * WARP_WIDTH + lane_x + LANE_WIDTH;
@@ -317,27 +228,15 @@ __global__ void sgemm_128x128x8_kernel(const float * a, const float * b, float *
   u_int32_t c_glb_st_3 = c_glb_st_y_1 * c_glb_st_y_stride * FLOAT4_WORD_NUM + c_glb_st_x_1 * c_glb_st_x_stride;
 
   for (u_int32_t row = 0; row < FLOAT4_WORD_NUM; ++ row) {
-    float4_add(tc4x4[0][0][row], tc4x4[1][0][row]);
-    float4_add(tc4x4[0][1][row], tc4x4[1][1][row]);
-    float4_add(tc4x4[0][2][row], tc4x4[1][2][row]);
-    float4_add(tc4x4[0][3][row], tc4x4[1][3][row]);
-  }
-
-
-  for (u_int32_t row = 0; row < FLOAT4_WORD_NUM; ++ row) {
-    glb_c[c_glb_st_0 + row * c_glb_st_y_stride] = tc4x4[0][0][row];
-    glb_c[c_glb_st_1 + row * c_glb_st_y_stride] = tc4x4[0][1][row];
-    glb_c[c_glb_st_2 + row * c_glb_st_y_stride] = tc4x4[0][2][row];
-    glb_c[c_glb_st_3 + row * c_glb_st_y_stride] = tc4x4[0][3][row];
+    glb_c[c_glb_st_0 + row * c_glb_st_y_stride] = tc4x4[0][row];
+    glb_c[c_glb_st_1 + row * c_glb_st_y_stride] = tc4x4[1][row];
+    glb_c[c_glb_st_2 + row * c_glb_st_y_stride] = tc4x4[2][row];
+    glb_c[c_glb_st_3 + row * c_glb_st_y_stride] = tc4x4[3][row];
   }
 
 }
 
 void sgemm_128x128x8(const float * a, const float * b, float *c, int M, int N, int K) {
-  cudaFuncAttributes funcAttrib;
-  cudaError_t err = cudaFuncGetAttributes(&funcAttrib, sgemm_128x128x8_kernel);
-  // Print the number of registers used by the kernel
-  std::cout << "Number of registers used by exampleKernel: " << funcAttrib.numRegs << std::endl;
   dim3 block(256);
   int tN = (N - 1) / 128 + 1;
   int tM = (M - 1) / 128 + 1;
