@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.14)
 project(gemm_naive)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
-set(NVCC_FLAGS "-O3")
+set(NVCC_FLAGS ${NVCC_FLAGS} -O3)
 
 set(CMAKE_CUDA_COMPILER  /usr/local/cuda/bin/nvcc)
 set(CUDA_ARCHITECTURES 86 89)
@@ -29,10 +29,24 @@ set(SOURCE_FILES
   src/cpu/cpu_naive.cpp
 )
 
+set(SOURCE_FILES_v2
+  src/gemm_test_v2.cpp 
+  src/cuda/cuda_gemm.cu
+  src/cuda/sgemm.cu
+  # Add other .cpp and .cu files here
+
+  src/cpu/cpu_naive.cpp
+)
+
 # Add the executable
 add_executable(${PROJECT_NAME} ${SOURCE_FILES})
 target_link_libraries(${PROJECT_NAME} cublas)
 target_compile_options(${PROJECT_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:${NVCC_FLAGS}>)
+
+# Add the executable
+add_executable(gemm_test_v2 ${SOURCE_FILES_v2})
+target_link_libraries(gemm_test_v2 cublas)
+target_compile_options(gemm_test_v2 PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:${NVCC_FLAGS}>)
 
 add_executable(smem_64bit_test src/smem_64bit_test.cu)
 add_executable(smem_128bit_test src/smem_128bit_test.cu)

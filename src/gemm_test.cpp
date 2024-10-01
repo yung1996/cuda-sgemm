@@ -316,6 +316,11 @@ int main(int argc, char* argv[]) {
   std::cout << "Test Function for GEMM: " << func_name << std::endl;
   std::cout << "Total Elapsed Time: " << duration.count() << " (second)" << std::endl;
   std::cout << "Average Elapsed Time: " << avg_elapsedTime << "(millisecond)." << std::endl;
+  // compute tflops
+  long double flops = 2LL * M * N * K;
+  long double tflops = (flops / (avg_elapsedTime * 1e-3)) * 1e-12;
+  std::cout << "Flops: " << flops << std::endl;
+  std::cout << "TFlops: " << tflops << std::endl;
   // Free device memory
   CUDA_CHECK(cudaFree(d_A));
   CUDA_CHECK(cudaFree(d_AT));
@@ -327,9 +332,9 @@ int main(int argc, char* argv[]) {
   // print_matrix(h_B, K, N);
   // std::cout << "***********" << " Matrix C " << "***********" << std::endl;
   // print_matrix(h_C, M, N);
-  std::cout << h_C[0] << ", " <<  h_C[2024] << std::endl;
-  cpu_gemm_naive(h_A.data(), h_B.data(), h_C.data(), M, N, K);
-  std::cout << h_C[0] << ", " <<  h_C[2024] << std::endl;
+  // std::cout << h_C[0] << ", " <<  h_C[2024] << std::endl;
+  // cpu_gemm_naive(h_A.data(), h_B.data(), h_C.data(), M, N, K);
+  // std::cout << h_C[0] << ", " <<  h_C[2024] << std::endl;
   // std::cout << "***********" << " Matrix A " << "***********" << std::endl;
   // print_matrix(h_A, M, K);
   // std::cout << "***********" << " Matrix B " << "***********" << std::endl;

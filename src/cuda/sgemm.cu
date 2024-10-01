@@ -44,6 +44,67 @@ inline __device__ void mma4x4(const float4 & fragmentA, const float4 & fragmentB
   tc[3].w += fragmentA.w * fragmentB.w;
 }
 
+/*
+ * Reference: https://github.com/Yinghan-Li/YHs_Sample/tree/master
+ * matrix A, B and C: row-major
+ *
+ * mma block:
+ * thread block tile: m128n128k8
+ * warp tile: m32n64k8
+ * thread tile: m8n8k8
+ * thread fragment:
+ *     matrixA: 8x1 FP32
+ *     matrixB: 1x8 FP32
+ *
+ * ----------------------------------------------------------------
+ * thread block tile map:
+ *
+ *                                128
+ *                    --|---------------------|
+ *             B_tile  8|                     |
+ *                    --|---------------------|
+ *
+ *  A_tile   | 8 |      |    64    |
+ *         --|---|    --|----------|----------|
+ *           |   |    32|  warp_0  |  warp_1  |
+ *           |   |    --|----------|----------|
+ *           |   |      |  warp_2  |  warp_3  |
+ *        128|   |      |----------|----------|
+ *           |   |      |  warp_4  |  warp_5  |
+ *           |   |      |----------|----------|
+ *           |   |      |  warp_6  |  warp_7  |
+ *         --|---|      |----------|----------|
+ *
+ * ----------------------------------------------------------------
+ * warp tile map:
+ *
+ * 'z' thread map to avoid LDS.128 shared memory broadcast limitation.
+ *
+ *              |              32               ||
+ *     B_frag --|---|---|---|---|---|---|---|---||---|---|---|---|---|---|---|---|
+ *             1|///|   |   |   |   |   |   |   ||///|   |   |   |   |   |   |   |
+ *            --|---|---|---|---|---|---|---|---||---|---|---|---|---|---|---|---|
+ * A_frag       | 4 |                           ||
+ *    | 1 |                                     ||
+ *  --|---|--   |---|---|---|---|---|---|---|---||---|---------------------------|
+ *    |///|4    |t0 |t2 |t4 |t6 |t8 |t10|t12|t14||t0 |                           |
+ *    |---|--   |---|---|---|---|---|---|---|---||---|                           |
+ *    |   |     |t1 |t3 |t5 |t7 |t9 |t11|t13|t15||                               |
+ *  16|---|     |---|---|---|---|---|---|---|---||                               |
+ *    |   |     |t16|t18|t20|t22|t24|t26|t28|t30||                               |
+ *    |---|     |---|---|---|---|---|---|---|---||                               |
+ *    |   |     |t17|t19|t21|t23|t25|t27|t29|t31||                               |
+ *  ==|===|=====|===|===|===|===|===|===|===|===||===|============================
+ *    |///|     |t0 |                           ||t0 |                           |
+ *    |---|     |---|                           ||---|                           |
+ *    |   |     |                               ||                               |
+ *    |---|     |                               ||                               |
+ *    |   |     |                               ||                               |
+ *    |---|     |                               ||                               |
+ *    |   |     |                               ||                               |
+ *    |---|     |-------------------------------||-------------------------------|
+ *
+ */
 __global__ void sgemm_128x128x8_kernel(const float * a, const float * b, float *c, int M, int N, int K) {
   // total shared memory
   __shared__ __align__(32 *sizeof(float)) float smem[2 * M_TILE * K_TILE + 2 * K_TILE * N_TILE];
@@ -56,8 +117,8 @@ __global__ void sgemm_128x128x8_kernel(const float * a, const float * b, float *
 
   // 256 threads for each block
   // Calculate how many tiles for each dimension (M, N, K)
-  const u_int32_t M_tiles = (M - 1) / M_TILE + 1;
-  const u_int32_t N_tiles = (N - 1) / N_TILE + 1;
+  // const u_int32_t M_tiles = (M - 1) / M_TILE + 1;
+  // const u_int32_t N_tiles = (N - 1) / N_TILE + 1;
   const u_int32_t K_tiles = (K - 1) / K_TILE + 1;
 
   // 4 x 2 warps for each block
@@ -77,10 +138,10 @@ __global__ void sgemm_128x128x8_kernel(const float * a, const float * b, float *
   constexpr u_int32_t block_dim_y = M_TILE_FLOAT4;
 
   // block strides, a is column-major order, b is row-major order
-  const u_int32_t a_block_x_stride = M / FLOAT4_WORD_NUM;
-  const u_int32_t a_block_y_stide = 1;
-  const u_int32_t b_block_x_stride = 1;
-  const u_int32_t b_block_y_stide =  N / FLOAT4_WORD_NUM;
+  // const u_int32_t a_block_x_stride = M / FLOAT4_WORD_NUM;
+  // const u_int32_t a_block_y_stide = 1;
+  // const u_int32_t b_block_x_stride = 1;
+  // const u_int32_t b_block_y_stide =  N / FLOAT4_WORD_NUM;
 
   const u_int32_t c_glb_st_x_stride = 1;
   const u_int32_t c_glb_st_y_stride = N / FLOAT4_WORD_NUM;
@@ -104,7 +165,7 @@ __global__ void sgemm_128x128x8_kernel(const float * a, const float * b, float *
   const u_int32_t a_glb_ld_y_stride = 1;
   const u_int32_t a_glb_ld_y = block_y * block_dim_y + lane_id;
   // begin x index
-  u_int32_t a_glb_ld_x = warp_id;
+  // u_int32_t a_glb_ld_x = warp_id;
   // begin global address
   u_int32_t a_glb_ld_addr = a_glb_ld_y * a_glb_ld_y_stride + warp_id * a_glb_ld_x_stride;
 
@@ -123,14 +184,19 @@ __global__ void sgemm_128x128x8_kernel(const float * a, const float * b, float *
 
   // [Matrix A]: load from global memory to shared memory
   smem_a[a_smem_st_addr] = glb_a[a_glb_ld_addr];
-
   // [Matrix B]: load from global memory to shared memory
   smem_b[b_smem_st_addr] = glb_b[b_glb_ld_addr];
 
   __syncthreads();
 
-  A_SM_OFFSET ^= 1;
-  B_SM_OFFSET ^= 1;
+  A_SM_OFFSET ^= A_SMEM_OFFSET_STRIDE;
+  B_SM_OFFSET ^= B_SMEM_OFFSET_STRIDE;
+
+  // shared memory load address for registers
+  u_int32_t a_smem_ld_0_base = warp_y * WARP_HEIGHT + lane_y;
+  u_int32_t a_smem_ld_1_base = warp_y * WARP_HEIGHT + lane_y + LANE_HEIGHT;
+  u_int32_t b_smem_ld_0_base = warp_x * WARP_WIDTH + lane_x;
+  u_int32_t b_smem_ld_1_base = warp_x * WARP_WIDTH + lane_x + LANE_WIDTH;
 
   float4 frag_a[2];
   float4 frag_b[2];
@@ -141,23 +207,37 @@ __global__ void sgemm_128x128x8_kernel(const float * a, const float * b, float *
   for (u_int32_t k_tile_idx = 1; k_tile_idx < K_tiles; ++k_tile_idx) {
     // [Matrix A]: load from global memory to shared memory
     a_glb_ld_addr += K_TILE * a_glb_ld_x_stride;
-    smem_a[A_SM_OFFSET * M_TILE_FLOAT4 * K_TILE + a_smem_st_addr] = glb_a[a_glb_ld_addr];
-
+    smem_a[A_SM_OFFSET + a_smem_st_addr] = glb_a[a_glb_ld_addr];
     // [Matrix B]: load from global memory to shared memory
     b_glb_ld_addr += K_TILE * b_glb_ld_y_stride;
-    smem_b[B_SM_OFFSET * N_TILE_FLOAT4 * K_TILE + b_smem_st_addr] = glb_b[b_glb_ld_addr];
+    smem_b[B_SM_OFFSET + b_smem_st_addr] = glb_b[b_glb_ld_addr];
 
-    A_SM_OFFSET ^= 1;
-    B_SM_OFFSET ^= 1;
+    A_SM_OFFSET ^= A_SMEM_OFFSET_STRIDE;
+    B_SM_OFFSET ^= B_SMEM_OFFSET_STRIDE;
 
     // compute fragment
+    u_int32_t a_smem_ld_0 = A_SM_OFFSET + a_smem_ld_0_base;
+    u_int32_t a_smem_ld_1 = A_SM_OFFSET + a_smem_ld_1_base;
+    u_int32_t b_smem_ld_0 = B_SM_OFFSET + b_smem_ld_0_base;
+    u_int32_t b_smem_ld_1 = B_SM_OFFSET + b_smem_ld_1_base;
+
+    frag_a[0] = smem_a[a_smem_ld_0];
+    frag_a[1] = smem_a[a_smem_ld_1];
+    frag_b[0] = smem_b[b_smem_ld_0];
+    frag_b[1] = smem_b[b_smem_ld_1];
+
+    mma4x4(frag_a[0], frag_b[0], tc4x4[0]);
+    mma4x4(frag_a[0], frag_b[1], tc4x4[1]);
+    mma4x4(frag_a[1], frag_b[0], tc4x4[2]);
+    mma4x4(frag_a[1], frag_b[1], tc4x4[3]);
+
 
     #pragma unroll
-    for (int k_tile_smem = 0; k_tile_smem < K_TILE; ++k_tile_smem) {
-      u_int32_t a_smem_ld_0 = A_SM_OFFSET * A_SMEM_OFFSET_STRIDE + k_tile_smem * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y;
-      u_int32_t a_smem_ld_1 = A_SM_OFFSET * A_SMEM_OFFSET_STRIDE + k_tile_smem * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y + LANE_HEIGHT;
-      u_int32_t b_smem_ld_0 = B_SM_OFFSET * B_SMEM_OFFSET_STRIDE + k_tile_smem * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x;
-      u_int32_t b_smem_ld_1 = B_SM_OFFSET * B_SMEM_OFFSET_STRIDE + k_tile_smem * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x + LANE_WIDTH;
+    for (int k_tile_smem = 1; k_tile_smem < K_TILE; ++k_tile_smem) {
+      a_smem_ld_0 += M_TILE_FLOAT4;
+      a_smem_ld_1 += M_TILE_FLOAT4;
+      b_smem_ld_0 += N_TILE_FLOAT4;
+      b_smem_ld_1 += N_TILE_FLOAT4;
 
       frag_a[0] = smem_a[a_smem_ld_0];
       frag_a[1] = smem_a[a_smem_ld_1];
@@ -175,15 +255,31 @@ __global__ void sgemm_128x128x8_kernel(const float * a, const float * b, float *
   
   }
 
-  A_SM_OFFSET ^= 1;
-  B_SM_OFFSET ^= 1;
+  A_SM_OFFSET ^= A_SMEM_OFFSET_STRIDE;
+  B_SM_OFFSET ^= B_SMEM_OFFSET_STRIDE;
+
+  // compute fragment
+  u_int32_t a_smem_ld_0 = A_SM_OFFSET + a_smem_ld_0_base;
+  u_int32_t a_smem_ld_1 = A_SM_OFFSET + a_smem_ld_1_base;
+  u_int32_t b_smem_ld_0 = B_SM_OFFSET + b_smem_ld_0_base;
+  u_int32_t b_smem_ld_1 = B_SM_OFFSET + b_smem_ld_1_base;
+
+  frag_a[0] = smem_a[a_smem_ld_0];
+  frag_a[1] = smem_a[a_smem_ld_1];
+  frag_b[0] = smem_b[b_smem_ld_0];
+  frag_b[1] = smem_b[b_smem_ld_1];
+
+  mma4x4(frag_a[0], frag_b[0], tc4x4[0]);
+  mma4x4(frag_a[0], frag_b[1], tc4x4[1]);
+  mma4x4(frag_a[1], frag_b[0], tc4x4[2]);
+  mma4x4(frag_a[1], frag_b[1], tc4x4[3]);
 
   #pragma unroll
-  for (int k_tile_smem = 0; k_tile_smem < K_TILE; ++k_tile_smem) {
-    u_int32_t a_smem_ld_0 = A_SM_OFFSET * A_SMEM_OFFSET_STRIDE + k_tile_smem * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y;
-    u_int32_t a_smem_ld_1 = A_SM_OFFSET * A_SMEM_OFFSET_STRIDE + k_tile_smem * M_TILE_FLOAT4 + warp_y * WARP_HEIGHT + lane_y + LANE_HEIGHT;
-    u_int32_t b_smem_ld_0 = B_SM_OFFSET * B_SMEM_OFFSET_STRIDE + k_tile_smem * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x;
-    u_int32_t b_smem_ld_1 = B_SM_OFFSET * B_SMEM_OFFSET_STRIDE + k_tile_smem * N_TILE_FLOAT4 + warp_x * WARP_WIDTH + lane_x + LANE_WIDTH;
+  for (int k_tile_smem = 1; k_tile_smem < K_TILE; ++k_tile_smem) {
+    a_smem_ld_0 += M_TILE_FLOAT4;
+    a_smem_ld_1 += M_TILE_FLOAT4;
+    b_smem_ld_0 += N_TILE_FLOAT4;
+    b_smem_ld_1 += N_TILE_FLOAT4;
 
     frag_a[0] = smem_a[a_smem_ld_0];
     frag_a[1] = smem_a[a_smem_ld_1];
